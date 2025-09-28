@@ -2,7 +2,7 @@ import "./globals.css"
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Zero Stress Core",
+  title: "Zero Stress Managment System",
   description: "POS y Gestión - Piscina Zero Stress",
 }
 

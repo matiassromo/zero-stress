@@ -1,15 +1,16 @@
 @import "tailwindcss";
 
+/* Importa Tailwind */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ================================
+   Variables base
+   ================================ */
 :root {
   --background: #ffffff;
   --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -19,19 +20,33 @@
   }
 }
 
+/* Forzar esquema claro por defecto */
+:root {
+  color-scheme: light;
+}
+
+/* ================================
+   Body general
+   ================================ */
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* ================================
+   Utilidades personalizadas
+   ================================ */
+.card {
+  @apply rounded-2xl border border-neutral-200 bg-white p-4;
+}
 
-:root { color-scheme: dark; }
+.btn {
+  @apply inline-flex items-center justify-center rounded-xl px-3 py-2 
+         text-sm font-medium border border-neutral-200 hover:bg-neutral-100;
+}
 
-/* utilidades simples */
-.card { @apply rounded-2xl border border-neutral-800 bg-neutral-900/60 p-4; }
-.btn  { @apply inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm font-medium border border-neutral-700 hover:bg-neutral-800; }
-.link { @apply block rounded-lg px-3 py-2 text-sm hover:bg-neutral-800; }
+.link {
+  @apply block rounded-lg px-3 py-2 text-sm hover:bg-neutral-100;
+}
+
