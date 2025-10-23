@@ -1,8 +1,32 @@
+import Link from "next/link"
+
 export default function ModuleCard({
-  title, subtitle, badge,
-}: { title: string; subtitle: string; badge?: string }) {
+  title,
+  subtitle,
+  badge,
+  href,
+}: {
+  title: string
+  subtitle: string
+  badge?: string
+  href?: string
+}) {
+  const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+    href ? (
+      <Link
+        href={href}
+        className="block rounded-2xl border border-neutral-200 bg-white p-4 hover:shadow-sm"
+      >
+        {children}
+      </Link>
+    ) : (
+      <div className="block rounded-2xl border border-neutral-200 bg-white p-4">
+        {children}
+      </div>
+    )
+
   return (
-    <a href="#" className="block rounded-2xl border border-neutral-200 bg-white p-4 hover:shadow-sm">
+    <Wrapper>
       <div className="flex items-center justify-between">
         <div>
           <div className="text-base font-semibold">{title}</div>
@@ -14,6 +38,6 @@ export default function ModuleCard({
           </span>
         )}
       </div>
-    </a>
-  );
+    </Wrapper>
+  )
 }

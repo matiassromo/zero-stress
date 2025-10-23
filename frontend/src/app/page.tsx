@@ -33,11 +33,16 @@ export default function PanelZeroStress() {
         <div className="space-y-3">
           <h2 className="text-xl font-semibold">Módulos del Sistema</h2>
           <p className="text-sm text-neutral-500">
-            El POS es el núcleo central — Los demás módulos son pantallas espejo
+            Facturación es el módulo principal — POS y Caja Diaria viven aquí
           </p>
 
           <div className="grid gap-3">
-            <ModuleCard title="Punto de Venta (POS)" subtitle="Núcleo central — Todas las transacciones" badge="NÚCLEO CENTRAL" />
+            <ModuleCard
+              title="Facturación"
+              subtitle="Módulo principal — POS y Caja Diaria"
+              badge="MÓDULO PRINCIPAL"
+              href="/facturacion"
+            />
             <ModuleCard title="Clientes" subtitle="Gestión de entradas" />
             <ModuleCard title="Tarjetas 10 Pases" subtitle="Gestión de tarjetas" />
             <ModuleCard title="Bar" subtitle="Pedidos y cocina" />
