@@ -54,7 +54,7 @@ export default function ClientesPage() {
               <tr key={c.id} className="border-t">
                 <td className="p-3">{c.name}</td>
                 <td className="p-3">{c.nationalId}</td>
-                <td className="p-3">{c.phone}</td>
+                <td className="p-3">{c.number}</td>
                 <td className="p-3">{c.email}</td>
                 <td className="p-3">
                   <div className="flex gap-3">

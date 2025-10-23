@@ -18,7 +18,7 @@ export default function EditarClientePage() {
         name: c.name,
         email: c.email,
         address: c.address,
-        phone: c.phone,
+        number: c.number,
       });
     })();
   }, [id]);

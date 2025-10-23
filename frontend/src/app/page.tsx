@@ -1,11 +1,10 @@
-import Shell from "@/components/shell/Shell";
 import MetricCard from "@/components/shell/MetricCard";
 import ModuleCard from "@/components/shell/ModuleCard";
 import ActivityItem from "@/components/shell/ActivityItem";
 
 export default function PanelZeroStress() {
   return (
-    <Shell>
+    <>
       {/* Estado del sistema */}
       <section className="rounded-2xl border border-green-200 bg-green-50 p-4">
         <div className="flex items-center justify-between">
@@ -35,7 +34,6 @@ export default function PanelZeroStress() {
           <p className="text-sm text-neutral-500">
             Facturación es el módulo principal — POS y Caja Diaria viven aquí
           </p>
-
           <div className="grid gap-3">
             <ModuleCard
               title="Facturación"
@@ -60,6 +58,6 @@ export default function PanelZeroStress() {
           </div>
         </aside>
       </section>
-    </Shell>
+    </>
   );
 }
