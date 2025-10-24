@@ -44,7 +44,8 @@ export default function POSPage() {
   }
 
   return (
-    <Shell>
+    <>
+    
       <div className="grid gap-4 md:grid-cols-[1fr_380px]">
         <div className="rounded-2xl border border-neutral-200 bg-white p-4">
           <div className="text-sm font-medium mb-2">Buscar productos</div>
@@ -110,6 +111,6 @@ export default function POSPage() {
           </button>
         </div>
       </div>
-    </Shell>
+    </>
   )
 }

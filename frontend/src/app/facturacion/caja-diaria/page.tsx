@@ -57,8 +57,8 @@ export default function CajaDiariaPage() {
   }
 
   return (
-    <Shell>
-      <div className="space-y-4">
+    <>
+    <div className="space-y-4">
         <div className="rounded-2xl border border-neutral-200 bg-white p-4 flex items-center justify-between">
           <div>
             <div className="text-lg font-semibold">Caja Diaria</div>
@@ -137,6 +137,6 @@ export default function CajaDiariaPage() {
           </div>
         </div>
       </div>
-    </Shell>
+    </>
   )
 }

@@ -1,9 +1,8 @@
-import Shell from "@/components/shell/Shell";
 import ModuleCard from "@/components/shell/ModuleCard";
 
 export default function FacturacionHome() {
   return (
-    <Shell>
+    <>
       <div className="space-y-3">
         <h1 className="text-xl font-semibold">Facturación</h1>
         <p className="text-sm text-neutral-500">
@@ -22,6 +21,6 @@ export default function FacturacionHome() {
           />
         </div>
       </div>
-    </Shell>
+    </>
   );
 }
