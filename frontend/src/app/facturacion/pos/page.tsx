@@ -1,6 +1,5 @@
 "use client"
 
-import Shell from "@/components/shell/Shell"
 import { billingAPI } from "@/lib/api/billing"
 import { Product } from "@/types/billing"
 import { useEffect, useMemo, useState } from "react"

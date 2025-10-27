@@ -23,11 +23,21 @@ export default function EditarClientePage() {
     })();
   }, [id]);
 
-  if (!defaults) return <div className="p-4">Cargando…</div>;
+  if (!defaults) {
+    return (
+      <div className="rounded-2xl border border-neutral-200 bg-white p-6 text-neutral-500">
+        Cargando…
+      </div>
+    );
+  }
 
   return (
-    <div className="p-4">
-      <ClientForm mode="edit" id={id} defaultValues={defaults} />
+    <div className="space-y-6">
+      <h1 className="text-3xl font-semibold">Editar Cliente</h1>
+
+      <div className="rounded-2xl border border-neutral-200 bg-white p-6">
+        <ClientForm mode="edit" id={id} defaultValues={defaults} />
+      </div>
     </div>
   );
 }
