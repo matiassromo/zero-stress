@@ -1,3 +1,4 @@
+// src/lib/api/clients.ts
 import { Client, ClientId } from "@/types/client";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://localhost:7013";
