@@ -1,12 +1,16 @@
-export type ClientId = string;
-
 export interface Client {
-  id: ClientId;
+  id: string;
   nationalId: string;
   name: string;
   email: string;
   address: string;
-  number: string;     // <- clave alineada con el backend
-  createdAt: string | null;
-  updatedAt: string | null;
+  number: string;
+}
+
+export interface ClientRequestDto {
+  nationalId: string;
+  name: string;
+  email: string;
+  address: string;
+  number: string;
 }

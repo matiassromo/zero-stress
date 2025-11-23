@@ -1,7 +1,7 @@
 // src/lib/api/clients.ts
-import { Client, ClientId } from "@/types/client";
+import { Client } from "@/types/client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://localhost:7013";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:5058";
 const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
 
 /* -------------------- HTTP helper -------------------- */
@@ -72,7 +72,7 @@ export async function listClients(q?: string): Promise<Client[]> {
   );
 }
 
-export async function getClient(id: ClientId): Promise<Client | null> {
+export async function getClient(id: string): Promise<Client | null> {
   if (!USE_MOCKS) {
     const dto = await http<any>(`/api/Clients/${id}`);
     return dto ? normalize(dto) : null;
@@ -89,14 +89,14 @@ export async function createClient(input: UpsertClientInput): Promise<Client> {
     return normalize(dto);
   }
   const now = new Date().toISOString();
-  const newItem: Client = { id: uid(), ...input, createdAt: now, updatedAt: now };
+  const newItem: Client = { id: uid(), ...input};
   const list = readLS();
   list.push(newItem);
   writeLS(list);
   return newItem;
 }
 
-export async function updateClient(id: ClientId, input: UpsertClientInput): Promise<Client> {
+export async function updateClient(id: string, input: UpsertClientInput): Promise<Client> {
   if (!USE_MOCKS) {
     const dto = await http<any>(`/api/Clients/${id}`, {
       method: "PUT",
@@ -107,12 +107,12 @@ export async function updateClient(id: ClientId, input: UpsertClientInput): Prom
   const list = readLS();
   const idx = list.findIndex((c) => c.id === id);
   if (idx === -1) throw new Error("Cliente no encontrado");
-  list[idx] = { ...list[idx], ...input, updatedAt: new Date().toISOString() };
+  list[idx] = { ...list[idx], ...input};
   writeLS(list);
   return list[idx];
 }
 
-export async function deleteClient(id: ClientId): Promise<void> {
+export async function deleteClient(id: string): Promise<void> {
   if (!USE_MOCKS) {
     await http<void>(`/api/Clients/${id}`, { method: "DELETE" });
     return;
