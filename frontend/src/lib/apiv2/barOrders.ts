@@ -1,0 +1,156 @@
+import {
+  BarOrder,
+  BarOrderDetail,
+  BarOrderDetailCreateRequestDto,
+  BarOrderDetailUpdateRequestDto,
+} from "@/types/barOrder";
+import { http } from "./http";
+
+/**
+ * Retrieves all bar orders from the backend
+ * @returns Promise<BarOrder[]> Array of all bar orders
+ */
+export async function listBarOrders(): Promise<BarOrder[]> {
+  const dtos = await http<any[]>(`/api/BarOrders`);
+  return dtos.map(normalizeBarOrder);
+}
+
+/**
+ * Retrieves a single bar order by ID
+ * @param id - The UUID of the bar order to retrieve
+ * @returns Promise<BarOrder | null> The bar order if found, null if not found
+ */
+export async function getBarOrder(id: string): Promise<BarOrder | null> {
+  try {
+    const dto = await http<any>(`/api/BarOrders/${id}`);
+    return dto ? normalizeBarOrder(dto) : null;
+  } catch (err: any) {
+    if (err?.status === 404) return null;
+    throw err;
+  }
+}
+
+/**
+ * Creates a new bar order
+ * @returns Promise<BarOrder> The created bar order
+ */
+export async function createBarOrder(): Promise<BarOrder> {
+  const dto = await http<any>(`/api/BarOrders`, {
+    method: "POST",
+  });
+  return normalizeBarOrder(dto);
+}
+
+/**
+ * Deletes a bar order
+ * @param id - The UUID of the bar order to delete
+ * @returns Promise<void>
+ */
+export async function deleteBarOrder(id: string): Promise<void> {
+  await http<void>(`/api/BarOrders/${id}`, { method: "DELETE" });
+}
+
+/**
+ * Retrieves a specific bar order detail item
+ * @param orderId - The UUID of the bar order
+ * @param barProductId - The UUID of the bar product
+ * @returns Promise<BarOrderDetail | null> The order detail if found, null if not found
+ */
+export async function getBarOrderDetail(
+  orderId: string,
+  barProductId: string
+): Promise<BarOrderDetail | null> {
+  try {
+    const dto = await http<any>(`/api/BarOrders/${orderId}/details/${barProductId}`);
+    return dto ? normalizeBarOrderDetail(dto) : null;
+  } catch (err: any) {
+    if (err?.status === 404) return null;
+    throw err;
+  }
+}
+
+/**
+ * Creates a new detail item for a bar order
+ * @param orderId - The UUID of the bar order
+ * @param input - The order detail data (barProductId, unitPrice, qty)
+ * @returns Promise<BarOrderDetail> The created order detail
+ */
+export async function createBarOrderDetail(
+  orderId: string,
+  input: BarOrderDetailCreateRequestDto
+): Promise<BarOrderDetail> {
+  const dto = await http<any>(`/api/BarOrders/${orderId}/details`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return normalizeBarOrderDetail(dto);
+}
+
+/**
+ * Updates an existing bar order detail item
+ * @param orderId - The UUID of the bar order
+ * @param barProductId - The UUID of the bar product
+ * @param input - The updated detail data (unitPrice, qty)
+ * @returns Promise<BarOrderDetail> The updated order detail
+ */
+export async function updateBarOrderDetail(
+  orderId: string,
+  barProductId: string,
+  input: BarOrderDetailUpdateRequestDto
+): Promise<BarOrderDetail> {
+  const dto = await http<any>(`/api/BarOrders/${orderId}/details/${barProductId}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+  return normalizeBarOrderDetail(dto);
+}
+
+/**
+ * Deletes a bar order detail item
+ * @param orderId - The UUID of the bar order
+ * @param barProductId - The UUID of the bar product
+ * @returns Promise<void>
+ */
+export async function deleteBarOrderDetail(orderId: string, barProductId: string): Promise<void> {
+  await http<void>(`/api/BarOrders/${orderId}/details/${barProductId}`, { method: "DELETE" });
+}
+
+/**
+ * Normalizes backend DTO to frontend BarOrder type
+ * Handles both PascalCase (C# style) and camelCase property names
+ * @param dto - Raw DTO from backend
+ * @returns BarOrder Normalized bar order object
+ */
+function normalizeBarOrder(dto: any): BarOrder {
+  return {
+    id: dto.id ?? dto.Id,
+    orderDate: dto.orderDate ?? dto.OrderDate,
+    total: dto.total ?? dto.Total,
+    details: dto.details?.map(normalizeBarOrderDetail) ?? dto.Details?.map(normalizeBarOrderDetail) ?? [],
+  } as BarOrder;
+}
+
+/**
+ * Normalizes backend DTO to frontend BarOrderDetail type
+ * Handles both PascalCase (C# style) and camelCase property names
+ * @param dto - Raw DTO from backend
+ * @returns BarOrderDetail Normalized bar order detail object
+ */
+function normalizeBarOrderDetail(dto: any): BarOrderDetail {
+  return {
+    unitPrice: dto.unitPrice ?? dto.UnitPrice,
+    qty: dto.qty ?? dto.Qty,
+    barProduct: dto.barProduct ?? dto.BarProduct,
+  } as BarOrderDetail;
+}
+
+export default {
+  listBarOrders,
+  getBarOrder,
+  createBarOrder,
+  deleteBarOrder,
+  getBarOrderDetail,
+  createBarOrderDetail,
+  updateBarOrderDetail,
+  deleteBarOrderDetail,
+};
