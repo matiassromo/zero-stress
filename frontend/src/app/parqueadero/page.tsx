@@ -1,9 +1,282 @@
-import Shell from "@/components/shell/Shell"
-export default function Parqueadero() {
+// frontend/src/app/parqueadero/page.tsx
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import type { Parking, ParkingRequestDto } from "@/types/parking";
+import {
+  listParkings,
+  createParking,
+  updateParking,
+  deleteParking,
+} from "@/lib/apiv2/parkings";
+
+const HOURLY_RATE = 0.5;
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function todayDateOnly() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function formatTime(value: string | null | undefined): string {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return value;
+  return d.toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" });
+}
+
+function computeAmount(entry: string, exit: string | null | undefined): number {
+  if (!entry) return 0;
+  const start = new Date(entry);
+  const end = exit ? new Date(exit) : new Date();
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
+
+  const diffMs = end.getTime() - start.getTime();
+  if (diffMs <= 0) return HOURLY_RATE;
+
+  const diffHours = diffMs / (1000 * 60 * 60);
+  const billedBlocks = Math.ceil(diffHours);
+  return billedBlocks * HOURLY_RATE;
+}
+
+export default function ParkingPage() {
+  const [parkings, setParkings] = useState<Parking[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [clientName, setClientName] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    loadParkings();
+  }, []);
+
+  async function loadParkings() {
+    setLoading(true);
+    try {
+      const data = await listParkings();
+      const sorted = [...data].sort((a, b) => {
+        const aOpen = a.parkingExitTime == null ? 0 : 1;
+        const bOpen = b.parkingExitTime == null ? 0 : 1;
+        if (aOpen !== bOpen) return aOpen - bOpen;
+        return (b.parkingEntryTime || "").localeCompare(b.parkingEntryTime || "");
+      });
+      setParkings(sorted);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!clientName.trim()) return;
+
+    setCreating(true);
+    try {
+      const dto: ParkingRequestDto = {
+        parkingDate: todayDateOnly(),
+        parkingEntryTime: nowIso(),
+        parkingExitTime: null,
+        clientName: clientName.trim(),
+      };
+      const created = await createParking(dto);
+      setParkings((prev) => [created, ...prev]);
+      setClientName("");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleExit(p: Parking) {
+    if (p.parkingExitTime) return;
+
+    const dto: ParkingRequestDto = {
+      parkingDate: p.parkingDate,
+      parkingEntryTime: p.parkingEntryTime,
+      parkingExitTime: nowIso(),
+      clientName: p.clientName,
+    };
+
+    const updated = await updateParking(p.id, dto);
+    setParkings((prev) => prev.map((x) => (x.id === p.id ? updated : x)));
+  }
+
+  async function handleDelete(p: Parking) {
+    await deleteParking(p.id);
+    setParkings((prev) => prev.filter((x) => x.id !== p.id));
+  }
+
+  const openParkings = useMemo(
+    () => parkings.filter((p) => !p.parkingExitTime),
+    [parkings]
+  );
+  const closedParkings = useMemo(
+    () => parkings.filter((p) => p.parkingExitTime),
+    [parkings]
+  );
+
   return (
-    <>
-      <h1 className="text-xl font-semibold mb-4">Parqueadero</h1>
-      <div className="rounded-2xl border border-neutral-200 bg-white p-6">Control vehicular…</div>
-    </>
-  )
+    <div className="p-8 space-y-8">
+      <h1 className="text-2xl font-semibold">Parqueadero</h1>
+
+      {/* Registrar ingreso */}
+      <section className="bg-white rounded-xl shadow p-6 space-y-4">
+        <h2 className="text-lg font-semibold">Registrar ingreso</h2>
+        <p className="text-sm text-gray-500">
+          Para clientes que solicitaron parqueadero en el POS. Tarifa{" "}
+          <span className="font-medium">$0.50</span> por hora o fracción.
+        </p>
+
+        <form
+          onSubmit={handleCreate}
+          className="flex flex-col md:flex-row gap-4 items-center"
+        >
+          <div className="w-full md:flex-1">
+            <label className="block text-sm font-medium mb-1">
+              Nombre del cliente
+            </label>
+            <input
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+              placeholder="Ej: Carlos Mena"
+              value={clientName}
+              onChange={(e) => setClientName(e.target.value)}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={creating || !clientName.trim()}
+            className="px-4 py-2 rounded-full text-sm font-medium bg-black text-white disabled:opacity-50"
+          >
+            Registrar ingreso
+          </button>
+        </form>
+      </section>
+
+      {/* Vehículos dentro */}
+      <section className="bg-white rounded-xl shadow p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Vehículos dentro</h2>
+          <span className="text-sm text-gray-500">
+            {openParkings.length} activos
+          </span>
+        </div>
+
+        <div className="border rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="text-left px-3 py-2">Cliente</th>
+                <th className="text-left px-3 py-2">Fecha</th>
+                <th className="text-left px-3 py-2">Ingreso</th>
+                <th className="text-right px-3 py-2">Monto actual</th>
+                <th className="text-right px-3 py-2">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr>
+                  <td colSpan={5} className="px-3 py-4 text-center text-gray-500">
+                    Cargando registros...
+                  </td>
+                </tr>
+              )}
+
+              {!loading && openParkings.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-3 py-4 text-center text-gray-500">
+                    No hay vehículos dentro actualmente.
+                  </td>
+                </tr>
+              )}
+
+              {openParkings.map((p) => {
+                const amount = computeAmount(p.parkingEntryTime, null);
+                return (
+                  <tr key={p.id} className="border-t">
+                    <td className="px-3 py-2">{p.clientName}</td>
+                    <td className="px-3 py-2">{p.parkingDate}</td>
+                    <td className="px-3 py-2">{formatTime(p.parkingEntryTime)}</td>
+                    <td className="px-3 py-2 text-right">
+                      ${amount.toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2 text-right space-x-2">
+                      <button
+                        onClick={() => handleExit(p)}
+                        className="px-3 py-1 rounded-full text-xs font-medium bg-black text-white"
+                      >
+                        Registrar salida
+                      </button>
+                      <button
+                        onClick={() => handleDelete(p)}
+                        className="px-3 py-1 rounded-full text-xs font-medium border"
+                      >
+                        Eliminar
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Historial */}
+      <section className="bg-white rounded-xl shadow p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Historial</h2>
+          <span className="text-sm text-gray-500">
+            {closedParkings.length} registros
+          </span>
+        </div>
+
+        <div className="border rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="text-left px-3 py-2">Cliente</th>
+                <th className="text-left px-3 py-2">Fecha</th>
+                <th className="text-left px-3 py-2">Ingreso</th>
+                <th className="text-left px-3 py-2">Salida</th>
+                <th className="text-right px-3 py-2">Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {closedParkings.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-3 py-4 text-center text-gray-500">
+                    Aún no hay historial.
+                  </td>
+                </tr>
+              )}
+
+              {closedParkings.map((p) => {
+                const amount = computeAmount(
+                  p.parkingEntryTime,
+                  p.parkingExitTime ?? null
+                );
+                return (
+                  <tr key={p.id} className="border-t">
+                    <td className="px-3 py-2">{p.clientName}</td>
+                    <td className="px-3 py-2">{p.parkingDate}</td>
+                    <td className="px-3 py-2">
+                      {formatTime(p.parkingEntryTime)}
+                    </td>
+                    <td className="px-3 py-2">
+                      {formatTime(p.parkingExitTime ?? null)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      ${amount.toFixed(2)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
 }

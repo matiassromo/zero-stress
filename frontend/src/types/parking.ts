@@ -11,14 +11,19 @@ export interface Parking {
   parkingDate: string;
   parkingEntryTime: string;
   parkingExitTime?: string | null;
+
+  // NUEVO - nombre del cliente que usa el parqueadero
+  clientName: string;
 }
 
 /**
  * Request DTO for creating or updating a Parking record
- * Matches the ParkingRequestDto schema from the backend
  */
 export interface ParkingRequestDto {
   parkingDate?: string;
   parkingEntryTime?: string;
   parkingExitTime?: string | null;
+
+  // NUEVO - opcional en creación/actualización
+  clientName?: string;
 }
