@@ -1,4 +1,5 @@
 export const BACKEND_BASE_URL = "http://localhost:5058";
+export const ANALYSIS_BASE_URL = "http://localhost:8000";
 
 export class HttpError extends Error {
 	status: number;
@@ -48,3 +49,4 @@ export function httpWithBase(baseUrl: string) {
 }
 
 export const http = httpWithBase(BACKEND_BASE_URL);
+export const httpAnalysis = httpWithBase(ANALYSIS_BASE_URL);

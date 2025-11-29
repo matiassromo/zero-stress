@@ -1,12 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import MetricCard from "@/components/shell/MetricCard";
 import ModuleCard from "@/components/shell/ModuleCard";
 import ActivityItem from "@/components/shell/ActivityItem";
+import ChatbotAnalysis from "@/components/ChatbotAnalysis";
 import { useDashboard } from "@/hooks/useDashboard";
 
 export default function PanelZeroStress() {
   const { data, loading } = useDashboard(10000);
+  const [showChatbot, setShowChatbot] = useState(false);
 
   const cajaAbierta = data?.cajaAbierta ?? false;
   const ingresosHoy = data?.ingresosHoy ?? 0;
@@ -20,6 +23,20 @@ export default function PanelZeroStress() {
     llavesTotales > 0
       ? Math.round(((llavesTotales - llavesDisponibles) / llavesTotales) * 100)
       : 0;
+
+  if (showChatbot) {
+    return (
+      <div className="relative">
+        <button
+          onClick={() => setShowChatbot(false)}
+          className="absolute top-4 right-4 z-10 inline-flex items-center justify-center rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm transition hover:border-blue-500/70 hover:text-blue-700"
+        >
+          Volver al Dashboard
+        </button>
+        <ChatbotAnalysis />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -35,6 +52,12 @@ export default function PanelZeroStress() {
         </div>
 
         <div className="flex flex-wrap gap-2 justify-start md:justify-end">
+          <button
+            onClick={() => setShowChatbot(true)}
+            className="inline-flex items-center justify-center rounded-xl bg-purple-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-purple-700"
+          >
+            Análisis con IA
+          </button>
           <a
             href="/facturacion/pos"
             className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
