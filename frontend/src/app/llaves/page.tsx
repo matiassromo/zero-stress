@@ -2,34 +2,57 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  listKeys,
-  LockerKey,
-  LockerZone,
-  assignKey,
-  releaseKey,
-} from "@/lib/api/keys";
+import { listKeys, updateKey } from "@/lib/apiv2/keys";
+import type { Key } from "@/types/key";
+import type { LockerKey, LockerZone } from "@/types/lockerKey";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import AssignKeyDialog from "@/components/keys/AssignKeyDialog";
 
 export default function LlavesPage() {
   const [keys, setKeys] = useState<LockerKey[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Dialog de asignación
-  const [openAssign, setOpenAssign] = useState(false);
-  const [selectedKey, setSelectedKey] = useState<LockerKey | null>(null);
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
 
-  async function load() {
-    setLoading(true);
-    const data = await listKeys();
-    setKeys(data);
-    setLoading(false);
+    try {
+      const raw: Key[] = await listKeys();
+      const ordered = [...raw].sort((a, b) => a.id.localeCompare(b.id));
+
+      const lockerKeys: LockerKey[] = ordered.map((k, index) => {
+        const zone: LockerZone = index < 16 ? "Hombres" : "Mujeres";
+        const indexInZone = zone === "Hombres" ? index + 1 : index - 16 + 1;
+        const code = `${indexInZone}${zone === "Hombres" ? "H" : "M"}`;
+
+        const client = k.lastAssignedClient ?? null;
+        const note = (k as any).notes ?? null;
+        const assigned =
+          client && note ? `${client} · ${note}` : client || null;
+
+        return {
+          id: k.id,
+          code,
+          zone,
+          status: k.available ? "disponible" : "ocupada",
+          assignedTo: assigned,
+          since: null,
+        };
+      });
+
+      setKeys(lockerKeys);
+    } finally {
+      if (!silent) setLoading(false);
+    }
   }
 
   useEffect(() => {
     load();
+
+    const interval = setInterval(() => {
+      load(true);
+    }, 5000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const hombres = useMemo(
@@ -44,14 +67,16 @@ export default function LlavesPage() {
   const libresH = hombres.filter((k) => k.status === "disponible").length;
   const libresM = mujeres.filter((k) => k.status === "disponible").length;
 
-  function openAssignModal(code: string) {
-    const k = keys.find((x) => x.code === code) ?? null;
-    setSelectedKey(k);
-    setOpenAssign(true);
-  }
-
   async function doRelease(code: string) {
-    await releaseKey(code);
+    const k = keys.find((x) => x.code === code);
+    if (!k) return;
+
+    await updateKey(k.id, {
+      available: true,
+      lastAssignedClient: null,
+      notes: null,
+    });
+
     load();
   }
 
@@ -59,19 +84,26 @@ export default function LlavesPage() {
     <div className="p-6 space-y-8">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Gestión de Llaves</h1>
-        <div className="text-sm text-muted-foreground">
-          32 llaves totales · {libresH + libresM} disponibles
+        <div className="flex items-center gap-3">
+          <div className="text-sm text-muted-foreground">
+            32 llaves totales · {libresH + libresM} disponibles
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => load()}
+            disabled={loading}
+          >
+            Actualizar
+          </Button>
         </div>
       </div>
 
-      {/* Paneles */}
       <div className="grid gap-6 md:grid-cols-2">
         <KeyPanel
           title="Llaves Vestidor Hombres (1H - 16H)"
           hint={`${libresH} llaves disponibles`}
           list={hombres}
-          onAssign={openAssignModal}
-          onRelease={doRelease}
           loading={loading}
           badgeClass="bg-blue-100 text-blue-700"
         />
@@ -79,43 +111,28 @@ export default function LlavesPage() {
           title="Llaves Vestidor Mujeres (1M - 16M)"
           hint={`${libresM} llaves disponibles`}
           list={mujeres}
-          onAssign={openAssignModal}
-          onRelease={doRelease}
           loading={loading}
           badgeClass="bg-pink-100 text-pink-700"
         />
       </div>
 
-      {/* Tabla Detallada */}
       <KeyTable list={keys} onRelease={doRelease} />
-
-      {/* Dialog de Asignar */}
-      <AssignKeyDialog
-        open={openAssign}
-        onOpenChange={setOpenAssign}
-        keyItem={selectedKey}
-        onAssigned={load}
-      />
     </div>
   );
 }
 
-/* ---------------- UI ---------------- */
+/* ---------------- UI helpers ---------------- */
 
 function KeyPanel({
   title,
   hint,
   list,
-  onAssign,
-  onRelease,
   loading,
   badgeClass,
 }: {
   title: string;
   hint: string;
   list: LockerKey[];
-  onAssign: (code: string) => void;
-  onRelease: (code: string) => void;
   loading: boolean;
   badgeClass: string;
 }) {
@@ -135,12 +152,7 @@ function KeyPanel({
         {list
           .sort((a, b) => parseInt(a.code) - parseInt(b.code))
           .map((k) => (
-            <KeyCard
-              key={k.id}
-              k={k}
-              onAssign={onAssign}
-              onRelease={onRelease}
-            />
+            <KeyCard key={k.id} k={k} />
           ))}
         {loading && (
           <div className="col-span-4 text-sm text-muted-foreground">
@@ -152,24 +164,15 @@ function KeyPanel({
   );
 }
 
-function KeyCard({
-  k,
-  onAssign,
-  onRelease,
-}: {
-  k: LockerKey;
-  onAssign: (code: string) => void;
-  onRelease: (code: string) => void;
-}) {
+function KeyCard({ k }: { k: LockerKey }) {
   const busy = k.status === "ocupada";
   return (
-    <button
-      onClick={() => (busy ? onRelease(k.code) : onAssign(k.code))}
+    <div
       className={cn(
-        "aspect-[1/1] rounded-xl border flex flex-col items-center justify-center gap-1 transition",
+        "aspect-[1/1] rounded-xl border flex flex-col items-center justify-center gap-1",
         busy
-          ? "bg-red-50 border-red-200 hover:bg-red-100"
-          : "bg-emerald-50 border-emerald-200 hover:bg-emerald-100"
+          ? "bg-red-50 border-red-200"
+          : "bg-emerald-50 border-emerald-200"
       )}
       title={busy ? `Ocupada: ${k.assignedTo ?? ""}` : "Libre"}
     >
@@ -187,7 +190,7 @@ function KeyCard({
           {k.assignedTo}
         </div>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -257,7 +260,9 @@ function KeyTable({
                   </span>
                 </td>
                 <td className="py-3 px-5">{k.assignedTo ?? "-"}</td>
-                <td className="py-3 px-5">{k.since ? timeFrom(k.since) : "-"}</td>
+                <td className="py-3 px-5">
+                  {k.since ? timeFrom(k.since) : "-"}
+                </td>
                 <td className="py-3 px-5 text-right">
                   {k.status === "ocupada" && (
                     <Button

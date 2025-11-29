@@ -1,3 +1,4 @@
+// src/lib/api/accessCards.ts
 import { AccessCard, AccessCardRequestDto } from "@/types/accessCard";
 import { http } from "./http";
 
@@ -30,7 +31,9 @@ export async function getAccessCard(id: string): Promise<AccessCard | null> {
  * @param input - The access card data to create
  * @returns Promise<AccessCard> - The newly created access card
  */
-export async function createAccessCard(input: AccessCardRequestDto): Promise<AccessCard> {
+export async function createAccessCard(
+  input: AccessCardRequestDto
+): Promise<AccessCard> {
   const dto = await http<any>(`/api/AccessCards`, {
     method: "POST",
     body: JSON.stringify(input),
@@ -44,7 +47,10 @@ export async function createAccessCard(input: AccessCardRequestDto): Promise<Acc
  * @param input - The updated access card data
  * @returns Promise<AccessCard> - The updated access card
  */
-export async function updateAccessCard(id: string, input: AccessCardRequestDto): Promise<AccessCard> {
+export async function updateAccessCard(
+  id: string,
+  input: AccessCardRequestDto
+): Promise<AccessCard> {
   const dto = await http<any>(`/api/AccessCards/${id}`, {
     method: "PUT",
     body: JSON.stringify(input),
@@ -71,8 +77,11 @@ function normalize(dto: any): AccessCard {
   return {
     id: dto.id ?? dto.Id,
     total: dto.total ?? dto.Total ?? 0,
-    uses: dto.uses ?? dto.Uses,
-  } as AccessCard;
+    uses: dto.uses ?? dto.Uses ?? 0,
+    // si el backend algún día manda el titular, lo mapeamos;
+    // si no, quedará undefined
+    holderName: dto.holderName ?? dto.HolderName,
+  };
 }
 
 export default {

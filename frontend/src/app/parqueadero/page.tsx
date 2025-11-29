@@ -12,25 +12,35 @@ import {
 
 const HOURLY_RATE = 0.5;
 
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function todayDateOnly() {
+// YYYY-MM-DD
+function todayDateOnly(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function formatTime(value: string | null | undefined): string {
-  if (!value) return "-";
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return value;
-  return d.toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" });
+// HH:mm:ss  (compatible con TimeOnly del backend)
+function nowTimeOnly(): string {
+  return new Date().toTimeString().slice(0, 8);
 }
 
-function computeAmount(entry: string, exit: string | null | undefined): number {
-  if (!entry) return 0;
-  const start = new Date(entry);
-  const end = exit ? new Date(exit) : new Date();
+// Mostrar solo HH:mm en la UI
+function formatTime(value: string | null | undefined): string {
+  if (!value) return "-";
+  return value.slice(0, 5);
+}
+
+// Calcula monto usando fecha + hora de entrada/salida
+function computeAmount(
+  parkingDate: string,
+  entryTime: string,
+  exitTime?: string | null
+): number {
+  if (!parkingDate || !entryTime) return 0;
+
+  const start = new Date(`${parkingDate}T${entryTime}`);
+  const end = exitTime
+    ? new Date(`${parkingDate}T${exitTime}`)
+    : new Date();
+
   if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
 
   const diffMs = end.getTime() - start.getTime();
@@ -60,7 +70,10 @@ export default function ParkingPage() {
         const aOpen = a.parkingExitTime == null ? 0 : 1;
         const bOpen = b.parkingExitTime == null ? 0 : 1;
         if (aOpen !== bOpen) return aOpen - bOpen;
-        return (b.parkingEntryTime || "").localeCompare(b.parkingEntryTime || "");
+        // abiertos primero, luego cerrados, dentro de cada grupo por hora de entrada
+        return (a.parkingEntryTime || "").localeCompare(
+          b.parkingEntryTime || ""
+        );
       });
       setParkings(sorted);
     } finally {
@@ -76,7 +89,7 @@ export default function ParkingPage() {
     try {
       const dto: ParkingRequestDto = {
         parkingDate: todayDateOnly(),
-        parkingEntryTime: nowIso(),
+        parkingEntryTime: nowTimeOnly(), // solo hora para TimeOnly
         parkingExitTime: null,
         clientName: clientName.trim(),
       };
@@ -94,7 +107,7 @@ export default function ParkingPage() {
     const dto: ParkingRequestDto = {
       parkingDate: p.parkingDate,
       parkingEntryTime: p.parkingEntryTime,
-      parkingExitTime: nowIso(),
+      parkingExitTime: nowTimeOnly(), // solo hora de salida
       clientName: p.clientName,
     };
 
@@ -177,7 +190,10 @@ export default function ParkingPage() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={5} className="px-3 py-4 text-center text-gray-500">
+                  <td
+                    colSpan={5}
+                    className="px-3 py-4 text-center text-gray-500"
+                  >
                     Cargando registros...
                   </td>
                 </tr>
@@ -185,19 +201,28 @@ export default function ParkingPage() {
 
               {!loading && openParkings.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-3 py-4 text-center text-gray-500">
+                  <td
+                    colSpan={5}
+                    className="px-3 py-4 text-center text-gray-500"
+                  >
                     No hay vehículos dentro actualmente.
                   </td>
                 </tr>
               )}
 
               {openParkings.map((p) => {
-                const amount = computeAmount(p.parkingEntryTime, null);
+                const amount = computeAmount(
+                  p.parkingDate,
+                  p.parkingEntryTime,
+                  null
+                );
                 return (
                   <tr key={p.id} className="border-t">
                     <td className="px-3 py-2">{p.clientName}</td>
                     <td className="px-3 py-2">{p.parkingDate}</td>
-                    <td className="px-3 py-2">{formatTime(p.parkingEntryTime)}</td>
+                    <td className="px-3 py-2">
+                      {formatTime(p.parkingEntryTime)}
+                    </td>
                     <td className="px-3 py-2 text-right">
                       ${amount.toFixed(2)}
                     </td>
@@ -246,7 +271,10 @@ export default function ParkingPage() {
             <tbody>
               {closedParkings.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-3 py-4 text-center text-gray-500">
+                  <td
+                    colSpan={5}
+                    className="px-3 py-4 text-center text-gray-500"
+                  >
                     Aún no hay historial.
                   </td>
                 </tr>
@@ -254,6 +282,7 @@ export default function ParkingPage() {
 
               {closedParkings.map((p) => {
                 const amount = computeAmount(
+                  p.parkingDate,
                   p.parkingEntryTime,
                   p.parkingExitTime ?? null
                 );

@@ -1,16 +1,24 @@
 import { BarProduct } from "./barProduct";
 
 /**
- * Type definitions for BarOrder entity
- * Based on OpenAPI schema for BarOrders
+ * Estado de la orden de bar
  */
+export type BarOrderStatus = "Pendiente" | "Entregado";
 
 /**
  * Represents a bar order in the system
  */
 export interface BarOrder {
   id: string;
+  /** Fecha/hora de creación (OrderDate en el backend) */
+  orderDate?: string;
+  /** Total calculado en backend (opcional) */
   total?: number;
+  /** Id de la cuenta POS asociada (si aplica) */
+  accountId?: string | null;
+  /** Estado de preparación/entrega */
+  status?: BarOrderStatus;
+  /** Detalles de la orden */
   details?: BarOrderDetail[];
 }
 

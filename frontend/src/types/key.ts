@@ -1,20 +1,16 @@
-import { Client } from "./client";
+// src/types/key.ts
 
-/**
- * Represents a Key entity from the backend
- */
+// Lo que realmente devuelve el backend
 export interface Key {
   id: string;
   available: boolean;
-  notes?: string | null;
-  lastAssignedClient?: Client | null;
+  notes: string | null;
+  lastAssignedClient: string | null;
 }
 
-/**
- * Request DTO for updating a Key
- */
+// Lo que puedes enviar en el PUT / POST
 export interface KeyRequestDto {
-  lastAssignedTo?: string | null;
-  available: boolean;
+  available?: boolean;
   notes?: string | null;
+  lastAssignedClient?: string | null;
 }

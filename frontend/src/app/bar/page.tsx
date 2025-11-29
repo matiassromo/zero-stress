@@ -5,16 +5,16 @@ import { useEffect, useState } from "react";
 import type { BarProduct } from "@/types/barProduct";
 import type { BarOrder, BarOrderDetail } from "@/types/barOrder";
 
-// AJUSTA ESTAS RUTAS A TU PROYECTO
 import {
   listBarProducts,
   createBarProduct,
-} from "@/lib/apiv2/barProducts"; // <- path real a barProducts.ts
+} from "@/lib/apiv2/barProducts";
 import {
   createBarOrder,
   getBarOrder,
   createBarOrderDetail,
-} from "@/lib/apiv2/barOrders"; // <- path real a barOrders.ts
+  listBarOrders,
+} from "@/lib/apiv2/barOrders";
 
 export default function BarPage() {
   const [products, setProducts] = useState<BarProduct[]>([]);
@@ -28,9 +28,13 @@ export default function BarPage() {
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [detailQty, setDetailQty] = useState<number>(1);
 
-  // 1) Cargar productos al entrar
+  const [orders, setOrders] = useState<BarOrder[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(true);
+
+  // Cargar productos y órdenes al entrar
   useEffect(() => {
     loadProducts();
+    loadOrders();
   }, []);
 
   async function loadProducts() {
@@ -43,7 +47,17 @@ export default function BarPage() {
     }
   }
 
-  // 2) Crear producto nuevo
+  async function loadOrders() {
+    setLoadingOrders(true);
+    try {
+      const data = await listBarOrders();
+      setOrders(data);
+    } finally {
+      setLoadingOrders(false);
+    }
+  }
+
+  // Crear producto nuevo
   async function handleCreateProduct(e: React.FormEvent) {
     e.preventDefault();
     if (!newName || newQty <= 0 || newPrice <= 0) return;
@@ -60,17 +74,17 @@ export default function BarPage() {
     setNewPrice(0);
   }
 
-  // 3) Crear nueva orden vacía
+  // Crear nueva orden vacía
   async function handleNewOrder() {
     const order = await createBarOrder();
-    // por si quieres refrescarla del back (traer detalles)
     const full = await getBarOrder(order.id);
     setCurrentOrder(full ?? order);
     setSelectedProductId("");
     setDetailQty(1);
+    await loadOrders();
   }
 
-  // 4) Agregar producto a la orden actual
+  // Agregar producto a la orden actual
   async function handleAddDetail(e: React.FormEvent) {
     e.preventDefault();
     if (!currentOrder) return;
@@ -85,10 +99,10 @@ export default function BarPage() {
       qty: detailQty,
     });
 
-    // recargar la orden con sus detalles actualizados
     const updated = await getBarOrder(currentOrder.id);
     if (updated) setCurrentOrder(updated);
     setDetailQty(1);
+    await loadOrders();
   }
 
   const orderDetails: BarOrderDetail[] = currentOrder?.details ?? [];
@@ -189,7 +203,7 @@ export default function BarPage() {
         </div>
       </section>
 
-      {/* ==================== ORDEN ==================== */}
+      {/* ==================== ORDEN ACTUAL ==================== */}
       <section className="bg-white rounded-xl shadow p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Orden actual</h2>
@@ -306,6 +320,83 @@ export default function BarPage() {
               </table>
             </div>
           </>
+        )}
+      </section>
+
+      {/* ==================== ÓRDENES REGISTRADAS ==================== */}
+      <section className="bg-white rounded-xl shadow p-6 space-y-4">
+        <h2 className="text-lg font-semibold">Órdenes registradas</h2>
+
+        {loadingOrders ? (
+          <p className="text-sm text-gray-500">Cargando órdenes...</p>
+        ) : orders.length === 0 ? (
+          <p className="text-sm text-gray-500">No hay órdenes registradas.</p>
+        ) : (
+          <div className="border rounded-lg overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left px-3 py-2">Fecha</th>
+                  <th className="text-left px-3 py-2">ID Orden</th>
+                  <th className="text-left px-3 py-2">Cliente</th>
+                  <th className="text-left px-3 py-2">Productos</th>
+                  <th className="text-right px-3 py-2">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {orders.map((o) => {
+                  const total =
+                    o.total ??
+                    (o.details ?? []).reduce(
+                      (acc, d) => acc + d.unitPrice * d.qty,
+                      0
+                    );
+
+                  const date =
+                    (o as any).orderDate ??
+                    (o as any).OrderDate ??
+                    null;
+
+                  const clientName =
+                    (o as any).clientName ??
+                    (o as any).ClientName ??
+                    (o as any).customerName ??
+                    (o as any).CustomerName ??
+                    "-";
+
+                  const productsSummary =
+                    (o.details ?? []).length === 0
+                      ? "-"
+                      : (o.details ?? [])
+                          .map(
+                            (d) =>
+                              `${d.barProduct?.name ?? "Producto"} x${
+                                d.qty
+                              }`
+                          )
+                          .join(", ");
+
+                  return (
+                    <tr key={o.id} className="border-t">
+                      <td className="px-3 py-2">
+                        {date
+                          ? new Date(date).toLocaleString("es-EC")
+                          : "-"}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs">
+                        {o.id}
+                      </td>
+                      <td className="px-3 py-2">{clientName}</td>
+                      <td className="px-3 py-2">{productsSummary}</td>
+                      <td className="px-3 py-2 text-right font-medium">
+                        ${total.toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
     </div>
