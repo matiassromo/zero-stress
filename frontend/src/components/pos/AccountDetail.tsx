@@ -204,49 +204,49 @@ export default function AccountDetail({
               </tr>
             </thead>
             <tbody>
-              {charges.map((c) => (
-                <tr key={c.id} className="border-t">
-                  <td className="py-2 px-3 text-sm">
-                    {new Date(c.createdAt).toLocaleString()}
-                  </td>
-                  <td className="py-2 px-3">{c.kind}</td>
-                  <td className="py-2 px-3">{c.concept}</td>
-                  <td className="py-2 px-3">{c.qty}</td>
-                  <td className="py-2 px-3">${c.amount.toFixed(2)}</td>
-                  <td className="py-2 px-3 font-medium">
-                    ${c.total.toFixed(2)}
-                  </td>
-                  <td className="py-2 px-3">
-                    <span
-                      className={`px-2 py-1 rounded text-xs ${
-                        c.status === "Pagado"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-amber-100 text-amber-700"
-                      }`}
+            {charges.map((c) => (
+              <tr key={c.id} className="border-t">
+                <td className="py-2 px-3 text-sm">
+                  {new Date(c.createdAt).toLocaleString()}
+                </td>
+                <td className="py-2 px-3">{c.kind}</td>
+
+                {/* 👇 AQUÍ SE QUITA EL (1H) */}
+                <td className="py-2 px-3">
+                  {c.kind === "Key"
+                    ? c.concept.replace(/\s*\(\s*1H\s*\)\s*$/i, "")
+                    : c.concept}
+                </td>
+
+                <td className="py-2 px-3">{c.qty}</td>
+                <td className="py-2 px-3">${c.amount.toFixed(2)}</td>
+                <td className="py-2 px-3 font-medium">
+                  ${c.total.toFixed(2)}
+                </td>
+                <td className="py-2 px-3">
+                  <span
+                    className={`px-2 py-1 rounded text-xs ${
+                      c.status === "Pagado"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-amber-100 text-amber-700"
+                    }`}
+                  >
+                    {c.status}
+                  </span>
+                </td>
+                <td className="py-2 px-3">
+                  {c.status === "Pendiente" && (
+                    <button
+                      onClick={() => handleMarkPaid(c.id)}
+                      className="text-sm rounded bg-emerald-600 text-white px-3 py-1"
                     >
-                      {c.status}
-                    </span>
-                  </td>
-                  <td className="py-2 px-3">
-                    {c.status === "Pendiente" && (
-                      <button
-                        onClick={() => handleMarkPaid(c.id)}
-                        className="text-sm rounded bg-emerald-600 text-white px-3 py-1"
-                      >
-                        Marcar pagado
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {charges.length === 0 && (
-                <tr>
-                  <td className="py-4 px-3 text-gray-500" colSpan={8}>
-                    Sin cargos registrados.
-                  </td>
-                </tr>
-              )}
-            </tbody>
+                      Marcar pagado
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
           </table>
         </div>
       </div>

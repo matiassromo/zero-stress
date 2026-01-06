@@ -10,20 +10,16 @@ import {
   consumePass,
   addCharge,
 } from "@/lib/api/accounts";
-import {
-  listClients,
-  createClient,
-  UpsertClientInput,
-} from "@/lib/api/clients";
+import { listClients, createClient, UpsertClientInput } from "@/lib/api/clients";
 import { Client } from "@/types/client";
 import { SelectedKey, PosEntryType, KeyGender } from "@/types/pos";
-// 🔽 NUEVO: backend real de llaves
+// 🔽 backend real de llaves
 import { listKeys, updateKey } from "@/lib/apiv2/keys";
 import { createParking } from "@/lib/apiv2/parkings";
 import type { ParkingRequestDto } from "@/types/parking";
 import type { Key } from "@/types/key";
 
-// 🔽 NUEVO: bar
+// 🔽 Bar
 import type { BarProduct } from "@/types/barProduct";
 import { listBarProducts } from "@/lib/apiv2/barProducts";
 import { createBarOrder, createBarOrderDetail } from "@/lib/apiv2/barOrders";
@@ -31,12 +27,10 @@ import { createBarOrder, createBarOrderDetail } from "@/lib/apiv2/barOrders";
 const PARKING_HOURLY_RATE = 0.5;
 
 function formatDateOnly(d: Date): string {
-  // YYYY-MM-DD
   return d.toISOString().slice(0, 10);
 }
 
 function formatTimeOnly(d: Date): string {
-  // HH:mm:ss en hora local (TimeOnly compatible)
   return d.toTimeString().slice(0, 8);
 }
 
@@ -44,15 +38,11 @@ type Duration = "1H" | "8H" | "2M";
 
 /* --------- HELPERS PARA LLAVES (api/Keys) --------- */
 
-// Obtener lista de números de llave disponibles por género ("H" | "M")
-async function fetchAvailableKeysByGender(
-  gender: KeyGender
-): Promise<number[]> {
+async function fetchAvailableKeysByGender(gender: KeyGender): Promise<number[]> {
   const raw: Key[] = await listKeys();
   const ordered = [...raw].sort((a, b) => a.id.localeCompare(b.id));
 
   const free: number[] = [];
-
   ordered.forEach((k, index) => {
     const g: KeyGender = index < 16 ? "H" : "M";
     if (g !== gender) return;
@@ -61,10 +51,9 @@ async function fetchAvailableKeysByGender(
     if (k.available) free.push(num);
   });
 
-  return free;
+  return free.sort((a, b) => a - b);
 }
 
-// Marcar como ocupadas todas las llaves seleccionadas (H y M)
 async function reserveLockerKeys(
   selectedKeys: SelectedKey[],
   accountId: string,
@@ -75,7 +64,6 @@ async function reserveLockerKeys(
   const raw: Key[] = await listKeys();
   const ordered = [...raw].sort((a, b) => a.id.localeCompare(b.id));
 
-  // Mapa (gender, number) -> Key
   type KeyIndex = { gender: KeyGender; number: number; key: Key };
   const indexed: KeyIndex[] = [];
 
@@ -88,9 +76,7 @@ async function reserveLockerKeys(
   const note = `Cuenta ${accountId} - ${clientName}`;
 
   const toUpdate = indexed.filter((ix) =>
-    selectedKeys.some(
-      (s) => s.gender === ix.gender && s.number === ix.number
-    )
+    selectedKeys.some((s) => s.gender === ix.gender && s.number === ix.number)
   );
 
   if (!toUpdate.length) return;
@@ -106,7 +92,7 @@ async function reserveLockerKeys(
   );
 }
 
-// --------- Tipo auxiliar para bar en el modal ----------
+/* --------- Tipo auxiliar para bar en el modal ---------- */
 type BarItem = {
   productId: string;
   name: string;
@@ -145,11 +131,10 @@ export default function CreateAccountModal({
   });
 
   /* ---------- Llaves ---------- */
-  const [keyGender, setKeyGender] = useState<KeyGender>("H"); // "H" | "M"
+  const [keyGender, setKeyGender] = useState<KeyGender>("H");
   const [availableKeys, setAvailableKeys] = useState<number[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<SelectedKey[]>([]);
-  // duración fija 1H (no se muestra en la UI)
-  const duration: Duration = "1H";
+  const duration: Duration = "1H"; // interno
 
   /* ---------- Parqueadero ---------- */
   const [requiresParking, setRequiresParking] = useState(false);
@@ -157,7 +142,7 @@ export default function CreateAccountModal({
   /* ---------- Estado ---------- */
   const [creating, setCreating] = useState(false);
 
-  /* ---------- Bar (consumo inicial opcional) ---------- */
+  /* ---------- Bar ---------- */
   const [useBarOrder, setUseBarOrder] = useState(false);
   const [barProducts, setBarProducts] = useState<BarProduct[]>([]);
   const [loadingBarProducts, setLoadingBarProducts] = useState(false);
@@ -178,14 +163,37 @@ export default function CreateAccountModal({
   }, [query]);
 
   /* ---------- Cargar llaves por género H/M desde /api/Keys ---------- */
+// hash estable para dependencias (solo afecta cuando realmente cambian llaves del género actual)
+const selectedHash = useMemo(() => {
+  return selectedKeys
+    .filter(k => k.gender === keyGender)
+    .map(k => k.number)
+    .sort((a,b) => a - b)
+    .join(",");
+}, [selectedKeys, keyGender]);
+
   useEffect(() => {
+    let alive = true;
+
     (async () => {
       const free = await fetchAvailableKeysByGender(keyGender);
-      setAvailableKeys(free);
-      // mantiene solo las seleccionadas del género activo
-      setSelectedKeys((prev) => prev.filter((k) => k.gender === keyGender));
+
+      // filtra seleccionadas del género actual
+      const selectedNums = new Set(
+        selectedHash
+          ? selectedHash.split(",").map(x => parseInt(x, 10))
+          : []
+      );
+
+      if (!alive) return;
+      setAvailableKeys(free.filter(n => !selectedNums.has(n)));
     })();
-  }, [keyGender]);
+
+    return () => {
+      alive = false;
+    };
+  }, [keyGender, selectedHash]);
+
 
   /* ---------- Cargar productos de bar cuando se active ---------- */
   useEffect(() => {
@@ -217,15 +225,11 @@ export default function CreateAccountModal({
   }, [entryType, counts]);
 
   const passSale = entryType === "pass" && !passState.exists ? PRICES.PASS : 0;
-  const keysSubtotal = 0; // si en el futuro cobras por llaves, cámbialo aquí
-  const parkingSubtotal = 0; // primera hora o fracción
+  const keysSubtotal = 0;
+  const parkingSubtotal = 0;
 
   const barSubtotal = useMemo(
-    () =>
-      barItems.reduce(
-        (sum, item) => sum + item.unitPrice * item.qty,
-        0
-      ),
+    () => barItems.reduce((sum, item) => sum + item.unitPrice * item.qty, 0),
     [barItems]
   );
 
@@ -246,10 +250,7 @@ export default function CreateAccountModal({
     setCounts((c) => ({ ...c, [field]: n }));
   }
 
-  async function ensureClient(
-    existing: Client | null,
-    fallbackName: string
-  ): Promise<Client> {
+  async function ensureClient(existing: Client | null, fallbackName: string) {
     if (existing) return existing;
     const name = fallbackName.trim();
     if (!name) throw new Error("Ingresa un nombre de cliente.");
@@ -280,17 +281,15 @@ export default function CreateAccountModal({
       setCreating(true);
       const holder = await ensureClient(client, query);
 
-      // Validaciones mínimas: mantenemos al menos 1 persona
       if (peopleCount === 0)
         throw new Error("Agrega al menos 1 persona para continuar.");
 
-      // PASES: crear si no existe y cobrar $55; si existe, validar usos
       let willCreatePass = false;
       if (entryType === "pass") {
         const found = await findPassByHolder(holder.name);
         if (!found) {
           await createPassForHolder(holder.name);
-          willCreatePass = true; // se cobra en cargos (accounts.ts)
+          willCreatePass = true;
         } else if (found.remaining < peopleCount) {
           throw new Error(
             `Pase sin usos suficientes. Restantes: ${found.remaining}`
@@ -298,33 +297,28 @@ export default function CreateAccountModal({
         }
       }
 
-      // Armar llaves elegidas para guardar en la cuenta local
+      // Guardar llaves en la cuenta local
       const keysToAttach: SelectedKey[] = selectedKeys.map((k) => ({
         ...k,
-        duration, // internamente siempre 1H
+        duration, // interno
       }));
 
-      // Crear cuenta POS (localStorage) + cargos
       const account = await openAccount({
         clientId: holder.id,
         clientName: holder.name,
-        gender: "M", // si luego agregas campo real, pásalo aquí
+        gender: "M",
         entryType,
         counts: entryType === "normal" ? counts : undefined,
         peopleCount,
-        keys:
-          keysToAttach.length > 0
-            ? { items: keysToAttach, duration }
-            : undefined,
+        keys: keysToAttach.length > 0 ? { items: keysToAttach, duration } : undefined,
         createPassIfMissing: entryType === "pass",
       });
 
-      // Descontar usos del pase cuando ya existía
       if (entryType === "pass" && !willCreatePass) {
         await consumePass(holder.name, peopleCount);
       }
 
-      // 🔽 ACTUALIZAR LLAVES EN /api/Keys (módulo Llaves REAL)
+      // Actualizar llaves reales
       if (selectedKeys.length) {
         await reserveLockerKeys(selectedKeys, account.id, holder.name);
       }
@@ -333,21 +327,18 @@ export default function CreateAccountModal({
       if (requiresParking) {
         const now = new Date();
         const parkingInput: ParkingRequestDto = {
-          parkingDate: formatDateOnly(now),       // "2025-11-29"
-          parkingEntryTime: formatTimeOnly(now),  // "04:03:00"  ==> TimeOnly OK
+          parkingDate: formatDateOnly(now),
+          parkingEntryTime: formatTimeOnly(now),
           parkingExitTime: null,
           clientName: holder.name,
         };
         await createParking(parkingInput);
       }
 
-
-      // ---------- Consumo inicial de bar ----------
+      // Bar inicial
       if (useBarOrder && barItems.length > 0) {
-        // 1) Crear orden en el módulo Bar
         const order = await createBarOrder();
 
-        // 2) Crear detalles en la orden
         await Promise.all(
           barItems.map((item) =>
             createBarOrderDetail(order.id, {
@@ -358,7 +349,6 @@ export default function CreateAccountModal({
           )
         );
 
-        // 3) Registrar cargos en la cuenta POS
         await Promise.all(
           barItems.map((item) =>
             addCharge(account.id, {
@@ -473,11 +463,7 @@ export default function CreateAccountModal({
                   className="mt-1 border rounded px-3 py-2 w-40"
                   value={peopleCount}
                   onChange={(e) => {
-                    const v = Math.max(
-                      0,
-                      parseInt(e.target.value || "0", 10)
-                    );
-                    // para pase, usamos A=v como contador simple
+                    const v = Math.max(0, parseInt(e.target.value || "0", 10));
                     setCounts({ A: v, N: 0, TE: 0, D: 0, AC: 0 });
                   }}
                 />
@@ -536,9 +522,11 @@ export default function CreateAccountModal({
                   const active = selectedKeys.some(
                     (k) => k.number === n && k.gender === keyGender
                   );
+
                   return (
                     <button
-                      key={n}
+                      key={`${keyGender}-${n}`}
+                      type="button"
                       onClick={() =>
                         setSelectedKeys((prev) =>
                           active
@@ -582,25 +570,33 @@ export default function CreateAccountModal({
             <div className="mt-3">
               <div className="text-sm font-medium">Llaves seleccionadas</div>
               <div className="mt-1 flex flex-wrap gap-2">
-                {selectedKeys.map((k) => (
-                  <span
-                    key={k.keyId}
-                    className="px-2 py-1 rounded-full bg-gray-100 border"
-                  >
-                    {k.number}
-                    {k.gender} · {k.duration}
-                    <button
-                      className="ml-2 opacity-70 hover:opacity-100"
-                      onClick={() =>
-                        setSelectedKeys((prev) =>
-                          prev.filter((x) => x.keyId !== k.keyId)
-                        )
-                      }
+                {selectedKeys
+                  .slice()
+                  .sort(
+                    (a, b) =>
+                      a.gender.localeCompare(b.gender) ||
+                      a.number - b.number
+                  )
+                  .map((k) => (
+                    <span
+                      key={k.keyId}
+                      className="px-2 py-1 rounded-full bg-gray-100 border"
                     >
-                      ✕
-                    </button>
-                  </span>
-                ))}
+                      {k.number}
+                      {k.gender}
+                      <button
+                        type="button"
+                        className="ml-2 opacity-70 hover:opacity-100"
+                        onClick={() =>
+                          setSelectedKeys((prev) =>
+                            prev.filter((x) => x.keyId !== k.keyId)
+                          )
+                        }
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
               </div>
             </div>
           )}

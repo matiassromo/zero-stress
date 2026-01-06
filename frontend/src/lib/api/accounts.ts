@@ -1,26 +1,26 @@
 // src/lib/api/accounts.ts
 import { PosEntryType, SelectedKey } from "@/types/pos";
-import { releaseLockerKeys } from "@/lib/lockerKeysSync"; // llaves reales
-
-// Backend real de tarjetas de pases
-import {
-  listAccessCards,
-  createAccessCard,
-  updateAccessCard,
-} from "@/lib/apiv2/accessCards";
-import type { AccessCardRequestDto } from "@/types/accessCard";
+import { releaseLockerKeys } from "@/lib/lockerKeysSync"; // <- NUEVO
 
 export type PosAccount = {
   id: string;
   status: "Abierta" | "Cerrada";
   openedAt: string;
-  closedAt?: string | null; // hora de salida
+  closedAt?: string | null; // <- hora de salida
   clientId: string;
   clientName: string;
-  gender: "M" | "F"; // género del cliente
-  keys?: { items: SelectedKey[]; duration: "1H" | "8H" | "2M" }; // llaves asignadas
-  entryType: PosEntryType; // tipo de entrada usado al abrir
-  requiresParking?: boolean; // si la cuenta requirió parqueadero
+
+  // Género del cliente si lo usas para otra cosa ("M" | "F")
+  gender: "M" | "F";
+
+  // Llaves asignadas con género de llave (H/M)
+  keys?: { items: SelectedKey[]; duration: "1H" | "8H" | "2M" };
+
+  // Tipo de entrada usado al abrir
+  entryType: PosEntryType;
+
+  // Indica si esta cuenta requirió parqueadero al momento de crearla
+  requiresParking?: boolean;
 };
 
 export type Charge = {
@@ -53,12 +53,11 @@ export type AccountSummary = {
   saldo: number;
 };
 
-// Tipo de pase basado en AccessCards
-export type PassInfo = {
+type PassRecord = {
   id: string;
   holderName: string;
-  remaining: number; // usos restantes
-  total: number;     // usos totales
+  remaining: number;
+  active: boolean;
 };
 
 type Store = {
@@ -66,6 +65,7 @@ type Store = {
   accounts: PosAccount[];
   chargesByAccount: Record<string, Charge[]>;
   paymentsByAccount: Record<string, Payment[]>;
+  passesByHolder: Record<string, PassRecord>; // clave normalizada por nombre
 };
 
 const KEY = "ZS_POS_STORE_v3";
@@ -82,18 +82,11 @@ export const PRICES = {
   KEY_2M: 0.0,
 };
 
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
-function nowISO() {
-  return new Date().toISOString();
-}
-function uid(prefix = "id") {
-  return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
-}
-function isSSR() {
-  return typeof window === "undefined";
-}
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+function nowISO() { return new Date().toISOString(); }
+function uid(prefix = "id") { return `${prefix}_${Math.random().toString(36).slice(2, 9)}`; }
+function isSSR() { return typeof window === "undefined"; }
+function normName(s: string) { return s.trim().toLowerCase(); }
 
 function freshStore(): Store {
   return {
@@ -101,9 +94,9 @@ function freshStore(): Store {
     accounts: [],
     chargesByAccount: {},
     paymentsByAccount: {},
+    passesByHolder: {},
   };
 }
-
 function load(): Store {
   if (isSSR()) return freshStore();
   const raw = localStorage.getItem(KEY);
@@ -118,15 +111,13 @@ function load(): Store {
     localStorage.setItem(KEY, JSON.stringify(init));
     return init;
   }
+  // migraciones simples
+  if (!("passesByHolder" in s)) (s as any).passesByHolder = {};
   return s;
 }
-
-function save(s: Store) {
-  if (!isSSR()) localStorage.setItem(KEY, JSON.stringify(s));
-}
+function save(s: Store) { if (!isSSR()) localStorage.setItem(KEY, JSON.stringify(s)); }
 
 /* ------------------ API cuentas ------------------ */
-
 export async function listAccountsToday(): Promise<PosAccount[]> {
   return load().accounts;
 }
@@ -153,21 +144,12 @@ export async function getAccount(id: string): Promise<AccountSummary> {
   };
 }
 
-export async function listCharges(id: string) {
-  return load().chargesByAccount[id] ?? [];
-}
-export async function listPayments(id: string) {
-  return load().paymentsByAccount[id] ?? [];
-}
+export async function listCharges(id: string) { return load().chargesByAccount[id] ?? []; }
+export async function listPayments(id: string) { return load().paymentsByAccount[id] ?? []; }
 
 export async function addCharge(
   accountId: string,
-  input: {
-    kind: "Normal" | "Pase" | "Key";
-    concept: string;
-    qty: number;
-    amount: number;
-  }
+  input: { kind: "Normal" | "Pase" | "Key"; concept: string; qty: number; amount: number }
 ) {
   const s = load();
   const list = s.chargesByAccount[accountId] ?? [];
@@ -188,11 +170,7 @@ export async function addCharge(
 
 export async function addPayment(
   accountId: string,
-  input: {
-    method: "Efectivo" | "Transferencia" | "Tarjeta";
-    amount: number;
-    note?: string;
-  }
+  input: { method: "Efectivo" | "Transferencia" | "Tarjeta"; amount: number; note?: string }
 ) {
   const s = load();
   const list = s.paymentsByAccount[accountId] ?? [];
@@ -281,10 +259,7 @@ export function printAccountReceipt(accountId: string) {
     .map(
       (c) => `
       <tr>
-        <td>${new Date(c.createdAt).toLocaleTimeString("es-EC", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })}</td>
+        <td>${new Date(c.createdAt).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}</td>
         <td>${c.concept}</td>
         <td class="right">${c.qty}</td>
         <td class="right">$${c.total.toFixed(2)}</td>
@@ -296,10 +271,7 @@ export function printAccountReceipt(accountId: string) {
     .map(
       (p) => `
       <tr>
-        <td>${new Date(p.createdAt).toLocaleTimeString("es-EC", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })}</td>
+        <td>${new Date(p.createdAt).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}</td>
         <td>${p.method}</td>
         <td class="right">$${p.amount.toFixed(2)}</td>
       </tr>`
@@ -383,90 +355,41 @@ export function printAccountReceipt(accountId: string) {
   win.document.close();
 }
 
-/* ------------------ PASES (backend AccessCards) ------------------ */
-
-/**
- * Busca tarjeta de pases por nombre del titular
- */
-export async function findPassByHolder(
-  holderName: string
-): Promise<PassInfo | null> {
-  const cards = await listAccessCards();
-  const card = cards.find(
-    (c: any) =>
-      c.holderName &&
-      c.holderName.toLowerCase().trim() === holderName.toLowerCase().trim()
-  );
-  if (!card) return null;
-
-  return {
-    id: card.id,
-    holderName: card.holderName,
-    remaining: card.uses,
-    total: card.total,
-  };
+/* ------------------ PASES (mock local) ------------------ */
+export async function findPassByHolder(holderName: string) {
+  const s = load();
+  const rec = s.passesByHolder[normName(holderName)];
+  return rec ?? null;
 }
 
-/**
- * Crea una tarjeta de 10 pases para el titular indicado
- */
-export async function createPassForHolder(
-  holderName: string
-): Promise<PassInfo> {
-  const input: AccessCardRequestDto = {
+export async function createPassForHolder(holderName: string) {
+  const s = load();
+  const key = normName(holderName);
+  const existing = s.passesByHolder[key];
+  if (existing?.active) return existing;
+  const rec: PassRecord = {
+    id: uid("pass"),
     holderName,
-    total: 10, // tarjeta de 10 pases
-    uses: 10,  // 10 usos disponibles
+    remaining: 10,
+    active: true,
   };
-
-  const card = await createAccessCard(input);
-
-  return {
-    id: card.id,
-    holderName: card.holderName,
-    remaining: card.uses,
-    total: card.total,
-  };
+  s.passesByHolder[key] = rec;
+  save(s);
+  return rec;
 }
 
-/**
- * Descuenta usos del pase del titular
- */
-export async function consumePass(
-  holderName: string,
-  uses: number
-): Promise<PassInfo> {
-  const existing = await findPassByHolder(holderName);
-  if (!existing) {
-    throw new Error("No existe tarjeta de pases para este titular.");
-  }
-
-  if (existing.remaining < uses) {
-    throw new Error(
-      `Pase sin usos suficientes. Restantes: ${existing.remaining}`
-    );
-  }
-
-  const remaining = existing.remaining - uses;
-
-  const input: AccessCardRequestDto = {
-    holderName,
-    total: existing.total,
-    uses: remaining,
-  };
-
-  const updated = await updateAccessCard(existing.id, input);
-
-  return {
-    id: updated.id,
-    holderName: updated.holderName,
-    remaining: updated.uses,
-    total: updated.total,
-  };
+export async function consumePass(holderName: string, uses: number) {
+  const s = load();
+  const key = normName(holderName);
+  const rec = s.passesByHolder[key];
+  if (!rec || !rec.active) throw new Error("Pase no encontrado o inactivo.");
+  if (rec.remaining < uses) throw new Error("Pase sin usos suficientes.");
+  rec.remaining -= uses;
+  save(s);
+  return rec.remaining;
 }
 
 /* ------------------ Abrir cuenta ------------------ */
-
 export async function openAccount(input: {
   clientId: string;
   clientName: string;
@@ -476,7 +399,7 @@ export async function openAccount(input: {
   peopleCount: number; // total personas que ingresan
   keys?: { items: SelectedKey[]; duration: "1H" | "8H" | "2M" };
   createPassIfMissing?: boolean; // si entryType=pass y no existe
-  requiresParking?: boolean; // campo para parqueadero
+  requiresParking?: boolean;      // campo para parqueadero
 }) {
   const s = load();
   const id = nextAccountId(s.accounts);
@@ -499,41 +422,11 @@ export async function openAccount(input: {
 
   // Cargos por entradas (NORMAL)
   if (input.entryType === "normal" && input.counts) {
-    addChargeIf(
-      charges,
-      "Normal",
-      "Adulto (A)",
-      input.counts.A,
-      PRICES.A
-    );
-    addChargeIf(
-      charges,
-      "Normal",
-      "Niño (N)",
-      input.counts.N,
-      PRICES.N
-    );
-    addChargeIf(
-      charges,
-      "Normal",
-      "Tercera edad (TE)",
-      input.counts.TE,
-      PRICES.TE
-    );
-    addChargeIf(
-      charges,
-      "Normal",
-      "Discapacidad (D)",
-      input.counts.D,
-      PRICES.D
-    );
-    addChargeIf(
-      charges,
-      "Normal",
-      "Acompañante (AC)",
-      input.counts.AC,
-      PRICES.AC
-    );
+    addChargeIf(charges, "Normal", "Adulto (A)",        input.counts.A,  PRICES.A);
+    addChargeIf(charges, "Normal", "Niño (N)",          input.counts.N,  PRICES.N);
+    addChargeIf(charges, "Normal", "Tercera edad (TE)", input.counts.TE, PRICES.TE);
+    addChargeIf(charges, "Normal", "Discapacidad (D)",  input.counts.D,  PRICES.D);
+    addChargeIf(charges, "Normal", "Acompañante (AC)",  input.counts.AC, PRICES.AC);
   }
 
   // Cargos por pase (PASS)
@@ -556,28 +449,18 @@ export async function openAccount(input: {
   // Cargo por llaves (si cobras) + detalle "5H, 2M"
   if (input.keys?.items?.length) {
     const dur = input.keys.duration;
-    const tag = input.keys.items
-      .map((k) => `${k.number}${k.gender}`)
-      .join(", ");
+    const tag = input.keys.items.map(k => `${k.number}${k.gender}`).join(", ");
     const price =
-      dur === "1H"
-        ? PRICES.KEY_1H
-        : dur === "8H"
-        ? PRICES.KEY_8H
-        : PRICES.KEY_2M;
+      dur === "1H" ? PRICES.KEY_1H : dur === "8H" ? PRICES.KEY_8H : PRICES.KEY_2M;
     addChargeIf(charges, "Key", `Llaves ${tag} (${dur})`, 1, price);
   }
 
-  s.chargesByAccount[id] = [
-    ...(s.chargesByAccount[id] ?? []),
-    ...charges,
-  ];
+  s.chargesByAccount[id] = [...(s.chargesByAccount[id] ?? []), ...charges];
   save(s);
   return account;
 }
 
 /* ---------- helpers ---------- */
-
 function addChargeIf(
   list: Charge[],
   kind: Charge["kind"],
@@ -594,14 +477,12 @@ function addChargeIf(
     amount: price,
     total: +(qty * price).toFixed(2),
     status: "Pendiente",
-    createdAt: nowISO(),
+    createdAt: nowISO(),  
   });
 }
 
 function nextAccountId(existing: PosAccount[]) {
-  const nums = existing
-    .map((a) => parseInt(a.id, 10))
-    .filter((n) => !Number.isNaN(n));
+  const nums = existing.map((a) => parseInt(a.id, 10)).filter((n) => !Number.isNaN(n));
   const next = nums.length ? Math.max(...nums) + 1 : 1;
   return next.toString().padStart(3, "0");
 }
