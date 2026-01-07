@@ -12,12 +12,9 @@ async function run() {
     console.log('listTransactions ->', all);
 
     console.log('\n2) createTransaction()');
-    // Note: You'll need valid clientId and transactionItemId from your database
-    // A TransactionItem is either a parking, accessCard, barOrder, entranceTransaction, or parking entity
+    // Note: You'll need valid clientId from your database
     const newTransaction = await transactions.createTransaction({
       clientId: "3a28b14c-4f9d-4d4c-9021-1894a8b6a2d1", // Replace with valid client ID
-      transactionItemId: "b47a1550-ff00-441e-bc14-b5bcbe2c84ed", // Replace with valid transaction item ID
-      paymentId: null, // Optional payment ID
     });
     console.log('createTransaction ->', newTransaction);
 
@@ -31,8 +28,6 @@ async function run() {
     }
     const updated = await transactions.updateTransaction(newTransaction.id, {
       clientId: fetched.client.id,
-      transactionItemId: fetched.transactionItem.id,
-      paymentId: "e17e827e-83d4-45f6-d63f-08de2ade5ba8", // Optional: add payment
     });
     console.log('updateTransaction ->', updated);
 

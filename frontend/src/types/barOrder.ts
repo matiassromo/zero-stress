@@ -10,6 +10,7 @@ export type BarOrderStatus = "Pendiente" | "Entregado";
  */
 export interface BarOrder {
   id: string;
+  transactionId?: string | null;
   /** Fecha/hora de creación (OrderDate en el backend) */
   orderDate?: string;
   /** Total calculado en backend (opcional) */
@@ -48,4 +49,11 @@ export interface BarOrderDetailCreateRequestDto {
 export interface BarOrderDetailUpdateRequestDto {
   unitPrice?: number;
   qty?: number;
+}
+
+/**
+ * Request DTO for creating or updating a bar order
+ */
+export interface BarOrderRequestDto {
+  transactionId?: string | null;
 }

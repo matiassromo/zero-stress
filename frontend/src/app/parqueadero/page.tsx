@@ -55,7 +55,6 @@ export default function ParkingPage() {
   const [parkings, setParkings] = useState<Parking[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [clientName, setClientName] = useState("");
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -83,7 +82,6 @@ export default function ParkingPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!clientName.trim()) return;
 
     setCreating(true);
     try {
@@ -91,11 +89,9 @@ export default function ParkingPage() {
         parkingDate: todayDateOnly(),
         parkingEntryTime: nowTimeOnly(), // solo hora para TimeOnly
         parkingExitTime: null,
-        clientName: clientName.trim(),
       };
       const created = await createParking(dto);
       setParkings((prev) => [created, ...prev]);
-      setClientName("");
     } finally {
       setCreating(false);
     }
@@ -108,7 +104,6 @@ export default function ParkingPage() {
       parkingDate: p.parkingDate,
       parkingEntryTime: p.parkingEntryTime,
       parkingExitTime: nowTimeOnly(), // solo hora de salida
-      clientName: p.clientName,
     };
 
     const updated = await updateParking(p.id, dto);
@@ -145,21 +140,9 @@ export default function ParkingPage() {
           onSubmit={handleCreate}
           className="flex flex-col md:flex-row gap-4 items-center"
         >
-          <div className="w-full md:flex-1">
-            <label className="block text-sm font-medium mb-1">
-              Nombre del cliente
-            </label>
-            <input
-              className="w-full border rounded-lg px-3 py-2 text-sm"
-              placeholder="Ej: Carlos Mena"
-              value={clientName}
-              onChange={(e) => setClientName(e.target.value)}
-            />
-          </div>
-
           <button
             type="submit"
-            disabled={creating || !clientName.trim()}
+            disabled={creating}
             className="px-4 py-2 rounded-full text-sm font-medium bg-black text-white disabled:opacity-50"
           >
             Registrar ingreso
@@ -180,7 +163,6 @@ export default function ParkingPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="text-left px-3 py-2">Cliente</th>
                 <th className="text-left px-3 py-2">Fecha</th>
                 <th className="text-left px-3 py-2">Ingreso</th>
                 <th className="text-right px-3 py-2">Monto actual</th>
@@ -191,7 +173,7 @@ export default function ParkingPage() {
               {loading && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={4}
                     className="px-3 py-4 text-center text-gray-500"
                   >
                     Cargando registros...
@@ -202,7 +184,7 @@ export default function ParkingPage() {
               {!loading && openParkings.length === 0 && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={4}
                     className="px-3 py-4 text-center text-gray-500"
                   >
                     No hay vehículos dentro actualmente.
@@ -218,7 +200,6 @@ export default function ParkingPage() {
                 );
                 return (
                   <tr key={p.id} className="border-t">
-                    <td className="px-3 py-2">{p.clientName}</td>
                     <td className="px-3 py-2">{p.parkingDate}</td>
                     <td className="px-3 py-2">
                       {formatTime(p.parkingEntryTime)}
@@ -261,7 +242,6 @@ export default function ParkingPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="text-left px-3 py-2">Cliente</th>
                 <th className="text-left px-3 py-2">Fecha</th>
                 <th className="text-left px-3 py-2">Ingreso</th>
                 <th className="text-left px-3 py-2">Salida</th>
@@ -272,7 +252,7 @@ export default function ParkingPage() {
               {closedParkings.length === 0 && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={4}
                     className="px-3 py-4 text-center text-gray-500"
                   >
                     Aún no hay historial.
@@ -288,7 +268,6 @@ export default function ParkingPage() {
                 );
                 return (
                   <tr key={p.id} className="border-t">
-                    <td className="px-3 py-2">{p.clientName}</td>
                     <td className="px-3 py-2">{p.parkingDate}</td>
                     <td className="px-3 py-2">
                       {formatTime(p.parkingEntryTime)}

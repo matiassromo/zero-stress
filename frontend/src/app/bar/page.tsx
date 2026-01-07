@@ -76,7 +76,7 @@ export default function BarPage() {
 
   // Crear nueva orden vacía
   async function handleNewOrder() {
-    const order = await createBarOrder();
+    const order = await createBarOrder({});
     const full = await getBarOrder(order.id);
     setCurrentOrder(full ?? order);
     setSelectedProductId("");
