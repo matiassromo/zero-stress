@@ -1,142 +1,366 @@
-"use client"
+"use client";
 
-import Shell from "@/components/shell/Shell"
-import { billingAPI } from "@/lib/api/billing"
-import { Movement } from "@/types/billing"
-import { useEffect, useMemo, useState } from "react"
+import React from "react";
+import type { CashMove, Cashbox, PaymentSummary } from "@/types/cashbox";
+import {
+  toDateKey,
+  getCashboxByDate,
+  openCashbox,
+  closeCashbox,
+  listManualMoves,
+  addManualMove,
+  deleteManualMove,
+  listPaymentMoves,
+  mergeMoves,
+  calcTotals,
+  summarizePayments,
+  listCashboxDates,
+} from "@/lib/apiv2/cashbox";
+import { OpenCashDialog } from "@/components/cashbox/OpenCashDialog";
+import { MoveDialog } from "@/components/cashbox/MoveDialog.";
+import { CloseCashDialog } from "@/components/cashbox/CloseCashDialog";
 
-
-function currency(n: number) {
-  return new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(n)
+function money(n: number) {
+  return `$${n.toFixed(2)}`;
 }
 
 export default function CajaDiariaPage() {
-  const [loading, setLoading] = useState(true)
-  const [status, setStatus] = useState<"open"|"closed">("closed")
-  const [openedAt, setOpenedAt] = useState<string | undefined>()
-  const [openingAmount, setOpeningAmount] = useState(0)
-  const [movs, setMovs] = useState<Movement[]>([])
-  const [income, setIncome] = useState(0)
-  const [expense, setExpense] = useState(0)
-  const balance = useMemo(() => openingAmount + income - expense, [openingAmount, income, expense])
+  const [dateKey, setDateKey] = React.useState<string>(() => toDateKey(new Date()));
 
-  async function load() {
-    setLoading(true)
-    const s = await billingAPI.getCashboxStatus()
-    const m = await billingAPI.listMovements()
-    setStatus(s.status)
-    setOpenedAt(s.openedAt)
-    setOpeningAmount(s.openingAmount ?? 0)
-    setIncome(s.totals.income)
-    setExpense(s.totals.expense)
-    setMovs(m)
-    setLoading(false)
-  }
+  const [cashbox, setCashbox] = React.useState<Cashbox | null>(null);
+  const [manualMoves, setManualMoves] = React.useState<CashMove[]>([]);
+  const [paymentMoves, setPaymentMoves] = React.useState<CashMove[]>([]);
+  const [loadingPayments, setLoadingPayments] = React.useState(false);
+  const [errorPayments, setErrorPayments] = React.useState<string | null>(null);
 
-  useEffect(() => { load() }, [])
+  const [openOpen, setOpenOpen] = React.useState(false);
+  const [openIn, setOpenIn] = React.useState(false);
+  const [openOut, setOpenOut] = React.useState(false);
+  const [openClose, setOpenClose] = React.useState(false);
 
-  async function onOpen() {
-    const amt = Number(prompt("Saldo inicial de caja:", "0") ?? "0")
-    if (isNaN(amt)) return
-    await billingAPI.openCashbox(amt)
-    await load()
-  }
-  async function onClose() {
-    await billingAPI.closeCashbox()
-    await load()
-  }
-  async function add(type: Movement["type"]) {
-    const concept = prompt(type === "income" ? "Concepto de ingreso" : "Concepto de egreso")
-    if (!concept) return
-    const amt = Number(prompt("Monto:", "0") ?? "0")
-    if (isNaN(amt) || amt <= 0) return
-    const mv = await billingAPI.addMovement({ type, concept, amount: amt })
-    setMovs(prev => [mv, ...prev])
-    if (type === "income") setIncome(x => x + amt)
-    else setExpense(x => x + amt)
-  }
+  const [historyDates, setHistoryDates] = React.useState<string[]>([]);
+
+  const refresh = React.useCallback(async () => {
+    const cb = getCashboxByDate(dateKey);
+    setCashbox(cb);
+
+    const mm = listManualMoves(dateKey);
+    setManualMoves(mm);
+
+    setHistoryDates(listCashboxDates());
+
+    if (!cb) {
+      setPaymentMoves([]);
+      setErrorPayments(null);
+      return;
+    }
+
+    setLoadingPayments(true);
+    setErrorPayments(null);
+    try {
+      const pm = await listPaymentMoves(dateKey);
+      setPaymentMoves(pm);
+    } catch (e: any) {
+      setErrorPayments(e?.message ?? "No se pudo cargar Payments.");
+      setPaymentMoves([]);
+    } finally {
+      setLoadingPayments(false);
+    }
+  }, [dateKey]);
+
+  React.useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const allMoves = React.useMemo(() => mergeMoves(manualMoves, paymentMoves), [manualMoves, paymentMoves]);
+
+  const totals = React.useMemo(() => {
+    const opening = cashbox?.openingAmount ?? 0;
+    const counted = cashbox?.countedCash;
+    return calcTotals(opening, allMoves, counted);
+  }, [cashbox, allMoves]);
+
+  const paymentSummary: PaymentSummary[] = React.useMemo(() => summarizePayments(paymentMoves), [paymentMoves]);
+
+  const isOpen = cashbox?.status === "Abierta";
 
   return (
-    <>
-    <div className="space-y-4">
-        <div className="rounded-2xl border border-neutral-200 bg-white p-4 flex items-center justify-between">
-          <div>
-            <div className="text-lg font-semibold">Caja Diaria</div>
-            <div className="text-sm text-neutral-500">
+    <div className="p-6">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-2xl font-semibold">Caja Diaria</div>
+
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-500">
+            <span>
+              Fecha: <span className="font-medium text-slate-800">{dateKey}</span>
+            </span>
+            <span className="text-slate-300">•</span>
+            <span>
               Estado:{" "}
-              <span className={status==="open" ? "text-green-700" : "text-neutral-700"}>
-                {status==="open" ? "Abierta" : "Cerrada"}
+              <span className={isOpen ? "text-emerald-700 font-medium" : "text-slate-700 font-medium"}>
+                {cashbox?.status ?? "Sin caja"}
               </span>
-              {status==="open" && openedAt ? ` — desde ${new Date(openedAt).toLocaleTimeString()}` : null}
-            </div>
-          </div>
-          <div className="flex gap-2">
-            {status==="closed" ? (
-              <button onClick={onOpen} className="rounded-xl bg-green-600 text-white px-3 py-2 text-sm hover:opacity-90">
-                Abrir Caja
-              </button>
-            ) : (
-              <button onClick={onClose} className="rounded-xl bg-neutral-800 text-white px-3 py-2 text-sm hover:opacity-90">
-                Cerrar Caja
-              </button>
-            )}
+            </span>
+            {isOpen && cashbox?.openedAt ? (
+              <span className="text-slate-400">— desde {new Date(cashbox.openedAt).toLocaleTimeString()}</span>
+            ) : null}
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-4">
-          <div className="rounded-2xl border border-neutral-200 bg-white p-4">
-            <div className="text-xs text-neutral-500">Saldo Inicial</div>
-            <div className="mt-1 text-2xl font-semibold">{currency(openingAmount)}</div>
-          </div>
-          <div className="rounded-2xl border border-green-200 bg-white p-4">
-            <div className="text-xs text-neutral-500">Ingresos</div>
-            <div className="mt-1 text-2xl font-semibold text-green-700">{currency(income)}</div>
-          </div>
-          <div className="rounded-2xl border border-amber-200 bg-white p-4">
-            <div className="text-xs text-neutral-500">Egresos</div>
-            <div className="mt-1 text-2xl font-semibold text-amber-700">{currency(expense)}</div>
-          </div>
-          <div className="rounded-2xl border border-blue-200 bg-white p-4">
-            <div className="text-xs text-neutral-500">Saldo Actual</div>
-            <div className="mt-1 text-2xl font-semibold text-blue-700">{currency(balance)}</div>
-          </div>
-        </div>
+        <div className="flex gap-2 items-center">
+          <input
+            type="date"
+            className="px-3 py-2 rounded-xl border bg-white text-sm"
+            value={dateKey}
+            onChange={(e) => setDateKey(e.target.value)}
+          />
 
-        <div className="flex gap-2">
-          <button onClick={() => add("income")} disabled={status!=="open"} className="rounded-xl bg-blue-600 text-white px-3 py-2 text-sm disabled:opacity-50">
-            + Ingreso
+          {!cashbox || cashbox.status === "Cerrada" ? (
+            <button className="px-4 py-2 rounded-xl bg-slate-900 text-white" onClick={() => setOpenOpen(true)}>
+              Abrir Caja
+            </button>
+          ) : (
+            <button className="px-4 py-2 rounded-xl bg-slate-900 text-white" onClick={() => setOpenClose(true)}>
+              Cerrar Caja
+            </button>
+          )}
+
+          <button className="px-4 py-2 rounded-xl border" onClick={refresh} disabled={loadingPayments}>
+            {loadingPayments ? "Actualizando..." : "Refrescar"}
           </button>
-          <button onClick={() => add("expense")} disabled={status!=="open"} className="rounded-xl bg-amber-600 text-white px-3 py-2 text-sm disabled:opacity-50">
-            + Egreso
-          </button>
-        </div>
-
-        <div className="rounded-2xl border border-neutral-200 bg-white">
-          <div className="px-4 py-3 border-b border-neutral-200 text-sm font-medium">Movimientos</div>
-          <div className="divide-y divide-neutral-100">
-            {loading ? (
-              <div className="p-4 text-sm text-neutral-500">Cargando…</div>
-            ) : movs.length === 0 ? (
-              <div className="p-4 text-sm text-neutral-500">Sin movimientos</div>
-            ) : (
-              movs.map(m => (
-                <div key={m.id} className="px-4 py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className={`h-2.5 w-2.5 rounded-full ${m.type==="income" ? "bg-green-400" : "bg-amber-400"}`} />
-                    <div>
-                      <div className="text-sm">{m.concept}</div>
-                      <div className="text-xs text-neutral-500">{new Date(m.at).toLocaleTimeString()}</div>
-                    </div>
-                  </div>
-                  <div className={`text-sm font-medium ${m.type==="income" ? "text-green-700" : "text-amber-700"}`}>
-                    {m.type==="income" ? "+" : "-"} {currency(m.amount)}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
         </div>
       </div>
-    </>
-  )
+
+      {/* Metrics */}
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card title="Saldo Inicial" value={money(totals.opening)} />
+        <Card title="Ingresos" value={money(totals.ingresos)} accent="text-emerald-700" />
+        <Card title="Egresos" value={money(totals.egresos)} accent="text-amber-700" />
+        <Card title="Saldo Actual" value={money(totals.theoretical)} accent="text-blue-700" />
+      </div>
+
+      {/* Actions */}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          className="px-4 py-2 rounded-full bg-blue-600 text-white disabled:opacity-50"
+          disabled={!isOpen}
+          onClick={() => setOpenIn(true)}
+        >
+          + Ingreso
+        </button>
+        <button
+          className="px-4 py-2 rounded-full bg-orange-600 text-white disabled:opacity-50"
+          disabled={!isOpen}
+          onClick={() => setOpenOut(true)}
+        >
+          + Egreso
+        </button>
+      </div>
+
+      {/* Payments summary */}
+      <div className="mt-6 rounded-2xl border bg-white">
+        <div className="p-4 border-b flex items-center justify-between">
+          <div className="font-semibold">Resumen de pagos (Payments)</div>
+          <div className="text-xs text-slate-500">
+            {cashbox ? (
+              <>
+                {loadingPayments ? "Cargando..." : `Registros: ${paymentMoves.length}`}
+              </>
+            ) : (
+              "Abre la caja para ver pagos del día"
+            )}
+          </div>
+        </div>
+
+        {errorPayments ? <div className="px-4 pt-3 text-sm text-rose-700">{errorPayments}</div> : null}
+
+        {!cashbox ? (
+          <div className="p-4 text-sm text-slate-500">Sin caja para esta fecha.</div>
+        ) : paymentSummary.length === 0 ? (
+          <div className="p-4 text-sm text-slate-500">
+            Sin pagos detectados desde backend para este día (o el schema no coincide).
+          </div>
+        ) : (
+          <div className="p-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-slate-500">
+                <tr className="border-b">
+                  <th className="text-left py-2 px-3">Método / Banco</th>
+                  <th className="text-right py-2 px-3">Cantidad</th>
+                  <th className="text-right py-2 px-3">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paymentSummary.map((s) => (
+                  <tr key={s.key} className="border-b last:border-b-0">
+                    <td className="py-2 px-3">{s.label}</td>
+                    <td className="py-2 px-3 text-right">{s.count}</td>
+                    <td className="py-2 px-3 text-right font-medium">{money(s.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Moves table */}
+      <div className="mt-6 rounded-2xl border bg-white">
+        <div className="p-4 border-b flex items-center justify-between">
+          <div className="font-semibold">Movimientos</div>
+          <div className="text-xs text-slate-500">
+            Payment: {paymentMoves.length} | Manual: {manualMoves.length}
+          </div>
+        </div>
+
+        {!cashbox ? (
+          <div className="p-4 text-sm text-slate-500">Sin caja para esta fecha.</div>
+        ) : allMoves.length === 0 ? (
+          <div className="p-4 text-sm text-slate-500">Sin movimientos</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-slate-500">
+                <tr className="border-b">
+                  <th className="text-left py-2 px-3">Fecha</th>
+                  <th className="text-left py-2 px-3">Tipo</th>
+                  <th className="text-left py-2 px-3">Origen</th>
+                  <th className="text-left py-2 px-3">Concepto</th>
+                  <th className="text-right py-2 px-3">Monto</th>
+                  <th className="text-right py-2 px-3">Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allMoves.map((m) => (
+                  <tr key={m.id} className="border-b last:border-b-0">
+                    <td className="py-2 px-3">{new Date(m.createdAt).toLocaleString()}</td>
+                    <td className="py-2 px-3">
+                      <span
+                        className={
+                          "px-2 py-1 rounded text-xs " +
+                          (m.type === "Ingreso" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")
+                        }
+                      >
+                        {m.type}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3">
+                      <span className="px-2 py-1 rounded text-xs bg-slate-100 text-slate-700">{m.source}</span>
+                    </td>
+                    <td className="py-2 px-3">
+                      <div className="font-medium">{m.concept}</div>
+                      {m.source === "Payment" ? (
+                        <div className="text-xs text-slate-500">
+                          {m.payment?.paymentType ? `Tipo: ${m.payment.paymentType}` : ""}
+                          {m.payment?.bankName ? ` | Banco: ${m.payment.bankName}` : ""}
+                          {m.payment?.reference ? ` | Ref: ${m.payment.reference}` : ""}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="py-2 px-3 text-right font-medium">{money(m.amount)}</td>
+                    <td className="py-2 px-3 text-right">
+                      {m.source === "Manual" && isOpen ? (
+                        <button
+                          className="px-3 py-1 rounded-lg border text-xs"
+                          onClick={() => {
+                            deleteManualMove(dateKey, m.id);
+                            setManualMoves(listManualMoves(dateKey));
+                          }}
+                        >
+                          Eliminar
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Local history (cajas abiertas/cerradas guardadas en este navegador) */}
+      <div className="mt-6 rounded-2xl border bg-white">
+        <div className="p-4 border-b flex items-center justify-between">
+          <div className="font-semibold">Histórico local (cajas guardadas en este PC)</div>
+          <div className="text-xs text-slate-500">{historyDates.length} fechas</div>
+        </div>
+
+        {historyDates.length === 0 ? (
+          <div className="p-4 text-sm text-slate-500">Aún no hay cajas registradas localmente.</div>
+        ) : (
+          <div className="p-4 flex flex-wrap gap-2">
+            {historyDates.slice(0, 30).map((d) => (
+              <button
+                key={d}
+                className={
+                  "px-3 py-1.5 rounded-xl border text-sm " +
+                  (d === dateKey ? "bg-slate-900 text-white border-slate-900" : "bg-white")
+                }
+                onClick={() => setDateKey(d)}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* dialogs */}
+      <OpenCashDialog
+        open={openOpen}
+        onClose={() => setOpenOpen(false)}
+        onSubmit={(data) => {
+          openCashbox({ dateKey, openingAmount: data.openingAmount, openedBy: data.openedBy });
+          setOpenOpen(false);
+          refresh();
+        }}
+      />
+
+      <MoveDialog
+        open={openIn}
+        type="Ingreso"
+        onClose={() => setOpenIn(false)}
+        onSubmit={(data) => {
+          addManualMove({ dateKey, type: "Ingreso", amount: data.amount, concept: data.concept, createdBy: data.createdBy });
+          setOpenIn(false);
+          setManualMoves(listManualMoves(dateKey));
+        }}
+      />
+
+      <MoveDialog
+        open={openOut}
+        type="Egreso"
+        onClose={() => setOpenOut(false)}
+        onSubmit={(data) => {
+          addManualMove({ dateKey, type: "Egreso", amount: data.amount, concept: data.concept, createdBy: data.createdBy });
+          setOpenOut(false);
+          setManualMoves(listManualMoves(dateKey));
+        }}
+      />
+
+      <CloseCashDialog
+        open={openClose}
+        totals={totals}
+        onClose={() => setOpenClose(false)}
+        onSubmit={(data) => {
+          closeCashbox({ dateKey, countedCash: data.countedCash, closedBy: data.closedBy, note: data.note });
+          setOpenClose(false);
+          refresh();
+        }}
+      />
+    </div>
+  );
+}
+
+function Card({ title, value, accent }: { title: string; value: string; accent?: string }) {
+  return (
+    <div className="rounded-2xl border bg-white p-4">
+      <div className="text-xs text-slate-500">{title}</div>
+      <div className={"mt-1 text-2xl font-semibold " + (accent ?? "text-slate-900")}>{value}</div>
+    </div>
+  );
 }

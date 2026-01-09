@@ -1,86 +1,98 @@
 // src/lib/api/accessCards.ts
-import { AccessCard, AccessCardRequestDto } from "@/types/accessCard";
-import { http } from "./http";
+import type { AccessCard, AccessCardRequestDto } from "@/types/accessCard";
+import { http, HttpError } from "./http";
 
 /**
- * Retrieves all access cards from the backend
- * @returns Promise<AccessCard[]> - Array of all access cards
+ * Backend real (Swagger):
+ * - Request: { transactionId, total }
+ * - Response: no garantizado en swagger; normalizamos defensivo.
  */
+
+const ENDPOINT = "/api/AccessCards";
+
 export async function listAccessCards(): Promise<AccessCard[]> {
-  const dtos = await http<any[]>(`/api/AccessCards`);
-  return dtos.map(normalize);
-}
-
-/**
- * Retrieves a single access card by ID
- * @param id - The UUID of the access card to retrieve
- * @returns Promise<AccessCard | null> - The access card or null if not found
- */
-export async function getAccessCard(id: string): Promise<AccessCard | null> {
   try {
-    const dto = await http<any>(`/api/AccessCards/${id}`);
-    return dto ? normalize(dto) : null;
-  } catch (err: any) {
-    if (err?.status === 404) return null;
+    const dtos = await http<any[]>(ENDPOINT);
+    return (dtos ?? []).map(normalize);
+  } catch (err) {
+    // Si el backend revienta (500 por SQL), no mates la pantalla
+    if (err instanceof HttpError && err.status >= 500) return [];
     throw err;
   }
 }
 
-/**
- * Creates a new access card
- * @param input - The access card data to create
- * @returns Promise<AccessCard> - The newly created access card
- */
+export async function getAccessCard(id: string): Promise<AccessCard | null> {
+  try {
+    const dto = await http<any>(`${ENDPOINT}/${id}`);
+    return dto ? normalize(dto) : null;
+  } catch (err: any) {
+    if (err instanceof HttpError && err.status === 404) return null;
+    if (err instanceof HttpError && err.status >= 500) return null;
+    throw err;
+  }
+}
+
 export async function createAccessCard(
   input: AccessCardRequestDto
 ): Promise<AccessCard> {
-  const dto = await http<any>(`/api/AccessCards`, {
+  const payload = toRequest(input);
+
+  const dto = await http<any>(ENDPOINT, {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify(payload),
   });
+
   return normalize(dto);
 }
 
-/**
- * Updates an existing access card
- * @param id - The UUID of the access card to update
- * @param input - The updated access card data
- * @returns Promise<AccessCard> - The updated access card
- */
 export async function updateAccessCard(
   id: string,
   input: AccessCardRequestDto
 ): Promise<AccessCard> {
-  const dto = await http<any>(`/api/AccessCards/${id}`, {
+  const payload = toRequest(input);
+
+  const dto = await http<any>(`${ENDPOINT}/${id}`, {
     method: "PUT",
-    body: JSON.stringify(input),
+    body: JSON.stringify(payload),
   });
+
   return normalize(dto);
 }
 
-/**
- * Deletes an access card
- * @param id - The UUID of the access card to delete
- * @returns Promise<void>
- */
 export async function deleteAccessCard(id: string): Promise<void> {
-  await http<void>(`/api/AccessCards/${id}`, { method: "DELETE" });
+  await http<void>(`${ENDPOINT}/${id}`, { method: "DELETE" });
 }
 
 /**
- * Normalizes the backend DTO to the frontend AccessCard interface
- * Handles both PascalCase (C#) and camelCase property names
- * @param dto - The raw DTO from the backend
- * @returns AccessCard - The normalized access card object
+ * Convierte lo que tu front maneje a lo que el backend acepta (Swagger)
+ * Swagger AccessCardRequestDto: { transactionId?: uuid, total?: number }
+ */
+function toRequest(input: AccessCardRequestDto): {
+  transactionId?: string;
+  total?: number;
+} {
+  return {
+    transactionId: (input as any).transactionId ?? (input as any).TransactionId,
+    total: (input as any).total ?? (input as any).Total,
+  };
+}
+
+/**
+ * Normaliza la respuesta del backend a tu tipo AccessCard.
+ * Importante:
+ * - `uses` NO está en Swagger. Por defecto lo dejamos en 0.
+ *   (en UI debes derivarlo desde EntranceAccessCards si quieres real)
  */
 function normalize(dto: any): AccessCard {
+  const id = dto?.id ?? dto?.Id ?? dto?.accessCardId ?? dto?.AccessCardId;
+
   return {
-    id: dto.id ?? dto.Id,
-    total: dto.total ?? dto.Total ?? 0,
-    uses: dto.uses ?? dto.Uses ?? 0,
-    // si el backend algún día manda el titular, lo mapeamos;
-    // si no, quedará undefined
-    holderName: dto.holderName ?? dto.HolderName,
+    id: String(id ?? ""),
+    total: Number(dto?.total ?? dto?.Total ?? 0),
+    uses: Number(dto?.uses ?? dto?.Uses ?? 0),
+    transactionId: dto?.transactionId ?? dto?.TransactionId ?? null,
+    // holderName no existe en Swagger; lo dejamos si algún día aparece
+    holderName: dto?.holderName ?? dto?.HolderName,
   };
 }
 

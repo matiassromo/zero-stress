@@ -27,7 +27,16 @@ export function httpWithBase(baseUrl: string) {
 			cache: init?.cache ?? "no-store",
 		};
 
-		const res = await fetch(`${baseUrl}${path}`, fetchInit);
+		let res: Response;
+		try {
+		res = await fetch(`${baseUrl}${path}`, fetchInit);
+		} catch (e: any) {
+		// Esto te deja un error con URL exacta (útil para debug)
+		throw new TypeError(
+			`Failed to fetch: ${baseUrl}${path} (${e?.message ?? "network/CORS"})`
+		);
+		}
+
 
 		if (!res.ok) {
 			const text = await res.text().catch(() => "");
