@@ -14,10 +14,7 @@ export interface Transaction {
 
 /**
  * Request DTO for creating or updating a transaction
- * Note: A TransactionItem is either a parking, accessCard, barOrder, entranceTransaction, or parking entity
  */
 export interface TransactionRequestDto {
   clientId: string;
-  transactionItemId: string;
-  paymentId?: string | null;
 }

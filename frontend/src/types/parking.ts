@@ -8,22 +8,18 @@
  */
 export interface Parking {
   id: string;
+  transactionId?: string | null;
   parkingDate: string;
   parkingEntryTime: string;
   parkingExitTime?: string | null;
-
-  // NUEVO - nombre del cliente que usa el parqueadero
-  clientName: string;
 }
 
 /**
  * Request DTO for creating or updating a Parking record
  */
 export interface ParkingRequestDto {
+  transactionId?: string | null;
   parkingDate?: string;
   parkingEntryTime?: string;
   parkingExitTime?: string | null;
-
-  // NUEVO - opcional en creación/actualización
-  clientName?: string;
 }

@@ -1,10 +1,22 @@
 /**
+ * Payment type enum
+ * 0 = Efectivo (cash)
+ * 1 = Transferencia (transfer)
+ */
+export enum PaymentType {
+  Efectivo = 0,
+  Transferencia = 1
+}
+
+/**
  * Payment entity represents a payment record in the system
  */
 export interface Payment {
   id: string;
   createdAt: string;
   total: number;
+  type: PaymentType;
+  transactionId: string;
 }
 
 /**
@@ -12,4 +24,6 @@ export interface Payment {
  */
 export interface PaymentRequestDto {
   total: number;
+  type: PaymentType;
+  transactionId: string;
 }

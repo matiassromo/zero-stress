@@ -9,6 +9,7 @@
  */
 export interface EntranceTransaction {
   id: string;
+  transactionId?: string | null;
   total: number;
   entranceDate?: string;
   entranceEntryTime?: string;
@@ -24,6 +25,7 @@ export interface EntranceTransaction {
  * Matches the EntranceTransactionRequestDto schema from the backend
  */
 export interface EntranceTransactionRequestDto {
+  transactionId?: string | null;
   entranceDate?: string;
   entranceEntryTime?: string;
   entranceExitTime?: string | null;
