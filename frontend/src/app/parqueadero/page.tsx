@@ -9,6 +9,8 @@ import {
   updateParking,
   deleteParking,
 } from "@/lib/apiv2/parkings";
+import TransactionMappingModal from "@/components/shared/TransactionMappingModal";
+import { toast } from "@/lib/ui/swal";
 
 const HOURLY_RATE = 0.5;
 
@@ -56,6 +58,8 @@ export default function ParkingPage() {
   const [loading, setLoading] = useState(true);
 
   const [creating, setCreating] = useState(false);
+  const [showTransactionModal, setShowTransactionModal] = useState(false);
+  const [selectedParking, setSelectedParking] = useState<Parking | null>(null);
 
   useEffect(() => {
     loadParkings();
@@ -115,6 +119,29 @@ export default function ParkingPage() {
     setParkings((prev) => prev.filter((x) => x.id !== p.id));
   }
 
+  function handleMapTransaction(p: Parking) {
+    setSelectedParking(p);
+    setShowTransactionModal(true);
+  }
+
+  async function handleTransactionSelected(transactionId: string) {
+    if (!selectedParking) return;
+
+    try {
+      const dto: ParkingRequestDto = {
+        parkingDate: selectedParking.parkingDate,
+        parkingEntryTime: selectedParking.parkingEntryTime,
+        parkingExitTime: selectedParking.parkingExitTime,
+        transactionId,
+      };
+      const updated = await updateParking(selectedParking.id, dto);
+      setParkings((prev) => prev.map((x) => (x.id === selectedParking.id ? updated : x)));
+      toast("success", "Transacción vinculada");
+    } catch (error: any) {
+      toast("error", error?.message ?? "No se pudo vincular la transacción");
+    }
+  }
+
   const openParkings = useMemo(
     () => parkings.filter((p) => !p.parkingExitTime),
     [parkings]
@@ -166,6 +193,7 @@ export default function ParkingPage() {
                 <th className="text-left px-3 py-2">Fecha</th>
                 <th className="text-left px-3 py-2">Ingreso</th>
                 <th className="text-right px-3 py-2">Monto actual</th>
+                <th className="text-left px-3 py-2">Transacción</th>
                 <th className="text-right px-3 py-2">Acciones</th>
               </tr>
             </thead>
@@ -173,7 +201,7 @@ export default function ParkingPage() {
               {loading && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={5}
                     className="px-3 py-4 text-center text-gray-500"
                   >
                     Cargando registros...
@@ -184,7 +212,7 @@ export default function ParkingPage() {
               {!loading && openParkings.length === 0 && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={5}
                     className="px-3 py-4 text-center text-gray-500"
                   >
                     No hay vehículos dentro actualmente.
@@ -207,7 +235,22 @@ export default function ParkingPage() {
                     <td className="px-3 py-2 text-right">
                       ${amount.toFixed(2)}
                     </td>
+                    <td className="px-3 py-2">
+                      {p.transactionId ? (
+                        <span className="font-mono text-xs text-emerald-600">
+                          ✓ {p.transactionId.substring(0, 8)}...
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 italic text-xs">Sin TX</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right space-x-2">
+                      <button
+                        onClick={() => handleMapTransaction(p)}
+                        className="px-3 py-1 rounded-full text-xs font-medium bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        {p.transactionId ? "Cambiar" : "Mapear"}
+                      </button>
                       <button
                         onClick={() => handleExit(p)}
                         className="px-3 py-1 rounded-full text-xs font-medium bg-black text-white"
@@ -246,13 +289,14 @@ export default function ParkingPage() {
                 <th className="text-left px-3 py-2">Ingreso</th>
                 <th className="text-left px-3 py-2">Salida</th>
                 <th className="text-right px-3 py-2">Monto</th>
+                <th className="text-left px-3 py-2">Transacción</th>
               </tr>
             </thead>
             <tbody>
               {closedParkings.length === 0 && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={5}
                     className="px-3 py-4 text-center text-gray-500"
                   >
                     Aún no hay historial.
@@ -278,6 +322,15 @@ export default function ParkingPage() {
                     <td className="px-3 py-2 text-right">
                       ${amount.toFixed(2)}
                     </td>
+                    <td className="px-3 py-2">
+                      {p.transactionId ? (
+                        <span className="font-mono text-xs text-neutral-600">
+                          {p.transactionId.substring(0, 8)}...
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 italic text-xs">Sin TX</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -285,6 +338,17 @@ export default function ParkingPage() {
           </table>
         </div>
       </section>
+
+      {/* Transaction Mapping Modal */}
+      <TransactionMappingModal
+        open={showTransactionModal}
+        onClose={() => {
+          setShowTransactionModal(false);
+          setSelectedParking(null);
+        }}
+        onTransactionSelected={handleTransactionSelected}
+        currentTransactionId={selectedParking?.transactionId}
+      />
     </div>
   );
 }

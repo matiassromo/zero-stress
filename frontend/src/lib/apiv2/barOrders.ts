@@ -45,6 +45,20 @@ export async function createBarOrder(input: BarOrderRequestDto): Promise<BarOrde
 }
 
 /**
+ * Updates an existing bar order
+ * @param id - The UUID of the bar order to update
+ * @param input - The updated bar order data
+ * @returns Promise<BarOrder> The updated bar order
+ */
+export async function updateBarOrder(id: string, input: BarOrderRequestDto): Promise<BarOrder> {
+  const dto = await http<any>(`/api/BarOrders/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+  return normalizeBarOrder(dto);
+}
+
+/**
  * Deletes a bar order
  * @param id - The UUID of the bar order to delete
  * @returns Promise<void>
@@ -152,6 +166,7 @@ export default {
   listBarOrders,
   getBarOrder,
   createBarOrder,
+  updateBarOrder,
   deleteBarOrder,
   getBarOrderDetail,
   createBarOrderDetail,

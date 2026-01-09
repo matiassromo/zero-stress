@@ -12,9 +12,12 @@ import {
 import {
   createBarOrder,
   getBarOrder,
+  updateBarOrder,
   createBarOrderDetail,
   listBarOrders,
 } from "@/lib/apiv2/barOrders";
+import TransactionMappingModal from "@/components/shared/TransactionMappingModal";
+import { toast } from "@/lib/ui/swal";
 
 export default function BarPage() {
   const [products, setProducts] = useState<BarProduct[]>([]);
@@ -27,6 +30,7 @@ export default function BarPage() {
   const [currentOrder, setCurrentOrder] = useState<BarOrder | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [detailQty, setDetailQty] = useState<number>(1);
+  const [showTransactionModal, setShowTransactionModal] = useState(false);
 
   const [orders, setOrders] = useState<BarOrder[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
@@ -103,6 +107,21 @@ export default function BarPage() {
     if (updated) setCurrentOrder(updated);
     setDetailQty(1);
     await loadOrders();
+  }
+
+  // Mapear transacción a la orden actual
+  async function handleTransactionSelected(transactionId: string) {
+    if (!currentOrder) return;
+
+    try {
+      await updateBarOrder(currentOrder.id, { transactionId });
+      const updated = await getBarOrder(currentOrder.id);
+      if (updated) setCurrentOrder(updated);
+      toast("success", "Transacción vinculada a la orden");
+      await loadOrders();
+    } catch (error: any) {
+      toast("error", error?.message ?? "No se pudo vincular la transacción");
+    }
   }
 
   const orderDetails: BarOrderDetail[] = currentOrder?.details ?? [];
@@ -225,9 +244,25 @@ export default function BarPage() {
 
         {currentOrder && (
           <>
-            <p className="text-sm text-gray-600">
-              Orden: <span className="font-mono">{currentOrder.id}</span>
-            </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">
+                  Orden: <span className="font-mono">{currentOrder.id}</span>
+                </p>
+                {currentOrder.transactionId && (
+                  <p className="text-xs text-emerald-600 mt-1">
+                    ✓ Transacción: <span className="font-mono">{currentOrder.transactionId.substring(0, 8)}...</span>
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTransactionModal(true)}
+                className="px-4 py-2 rounded-full text-sm font-medium bg-blue-600 text-white hover:bg-blue-700"
+              >
+                {currentOrder.transactionId ? "Cambiar Transacción" : "Mapear Transacción"}
+              </button>
+            </div>
 
             {/* Agregar detalle */}
             <form
@@ -399,6 +434,14 @@ export default function BarPage() {
           </div>
         )}
       </section>
+
+      {/* Transaction Mapping Modal */}
+      <TransactionMappingModal
+        open={showTransactionModal}
+        onClose={() => setShowTransactionModal(false)}
+        onTransactionSelected={handleTransactionSelected}
+        currentTransactionId={currentOrder?.transactionId}
+      />
     </div>
   );
 }
