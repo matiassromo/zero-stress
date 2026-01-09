@@ -70,6 +70,7 @@ export async function deleteEntranceTransaction(id: string): Promise<void> {
 function normalize(dto: any): EntranceTransaction {
   return {
     id: dto.id ?? dto.Id,
+    transactionId: dto.transactionId ?? dto.TransactionId ?? null,
     total : dto.total,
     entranceDate: dto.entranceDate ?? dto.EntranceDate,
     entranceEntryTime: dto.entranceEntryTime ?? dto.EntranceEntryTime,

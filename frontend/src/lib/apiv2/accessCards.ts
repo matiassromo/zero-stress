@@ -76,6 +76,7 @@ export async function deleteAccessCard(id: string): Promise<void> {
 function normalize(dto: any): AccessCard {
   return {
     id: dto.id ?? dto.Id,
+    transactionId: dto.transactionId ?? dto.TransactionId ?? null,
     total: dto.total ?? dto.Total ?? 0,
     uses: dto.uses ?? dto.Uses ?? 0,
     // si el backend algún día manda el titular, lo mapeamos;

@@ -70,12 +70,10 @@ export async function deleteParking(id: string): Promise<void> {
 function normalize(dto: any): Parking {
   return {
     id: dto.id ?? dto.Id,
+    transactionId: dto.transactionId ?? dto.TransactionId ?? null,
     parkingDate: dto.parkingDate ?? dto.ParkingDate,
     parkingEntryTime: dto.parkingEntryTime ?? dto.ParkingEntryTime,
     parkingExitTime: dto.parkingExitTime ?? dto.ParkingExitTime ?? null,
-
-    // NUEVO – mapeo del nombre del cliente
-    clientName: dto.clientName ?? dto.ClientName ?? "",
   } as Parking;
 }
 

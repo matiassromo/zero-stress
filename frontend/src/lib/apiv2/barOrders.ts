@@ -3,6 +3,7 @@ import {
   BarOrderDetail,
   BarOrderDetailCreateRequestDto,
   BarOrderDetailUpdateRequestDto,
+  BarOrderRequestDto,
 } from "@/types/barOrder";
 import { http } from "./http";
 
@@ -32,11 +33,27 @@ export async function getBarOrder(id: string): Promise<BarOrder | null> {
 
 /**
  * Creates a new bar order
+ * @param input - The bar order data (transactionId)
  * @returns Promise<BarOrder> The created bar order
  */
-export async function createBarOrder(): Promise<BarOrder> {
+export async function createBarOrder(input: BarOrderRequestDto): Promise<BarOrder> {
   const dto = await http<any>(`/api/BarOrders`, {
     method: "POST",
+    body: JSON.stringify(input),
+  });
+  return normalizeBarOrder(dto);
+}
+
+/**
+ * Updates an existing bar order
+ * @param id - The UUID of the bar order to update
+ * @param input - The updated bar order data
+ * @returns Promise<BarOrder> The updated bar order
+ */
+export async function updateBarOrder(id: string, input: BarOrderRequestDto): Promise<BarOrder> {
+  const dto = await http<any>(`/api/BarOrders/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
   });
   return normalizeBarOrder(dto);
 }
@@ -124,6 +141,7 @@ export async function deleteBarOrderDetail(orderId: string, barProductId: string
 function normalizeBarOrder(dto: any): BarOrder {
   return {
     id: dto.id ?? dto.Id,
+    transactionId: dto.transactionId ?? dto.TransactionId ?? null,
     orderDate: dto.orderDate ?? dto.OrderDate,
     total: dto.total ?? dto.Total,
     details: dto.details?.map(normalizeBarOrderDetail) ?? dto.Details?.map(normalizeBarOrderDetail) ?? [],
@@ -148,6 +166,7 @@ export default {
   listBarOrders,
   getBarOrder,
   createBarOrder,
+  updateBarOrder,
   deleteBarOrder,
   getBarOrderDetail,
   createBarOrderDetail,

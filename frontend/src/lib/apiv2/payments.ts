@@ -27,7 +27,7 @@ export async function getPayment(id: string): Promise<Payment | null> {
 
 /**
  * Creates a new payment
- * @param input - The payment data (total amount)
+ * @param input - The payment data (total, type, transactionId)
  * @returns Promise<Payment> The created payment
  */
 export async function createPayment(input: PaymentRequestDto): Promise<Payment> {
@@ -72,6 +72,8 @@ function normalize(dto: any): Payment {
     id: dto.id ?? dto.Id,
     createdAt: dto.createdAt ?? dto.CreatedAt,
     total: dto.total ?? dto.Total,
+    type: dto.type ?? dto.Type,
+    transactionId: dto.transactionId ?? dto.TransactionId,
   } as Payment;
 }
 

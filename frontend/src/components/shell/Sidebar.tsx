@@ -26,9 +26,15 @@ const items: NavItem[] = [
   },
   { type: "link", href: "/clientes", label: "Clientes" },
   { type: "link", href: "/pases", label: "Tarjetas 10 Pases" },
+  { type: "link", href: "/tarjetas-pases", label: "Tarjetas y Pases" },
   { type: "link", href: "/bar", label: "Bar" },
   { type: "link", href: "/parqueadero", label: "Parqueadero" },
   { type: "link", href: "/llaves", label: "Llaves" },
+  { type: "link", href: "/lockers", label: "Lockers" },
+  { type: "link", href: "/productos", label: "Productos" },
+  { type: "link", href: "/ingresos", label: "Ingresos" },
+  { type: "link", href: "/pagos", label: "Pagos" },
+  { type: "link", href: "/transacciones", label: "Transacciones" },
 ]
 
 export default function Sidebar() {

@@ -27,7 +27,7 @@ export async function getTransaction(id: string): Promise<Transaction | null> {
 
 /**
  * Creates a new transaction
- * @param input - The transaction data (clientId, transactionItemId, paymentId)
+ * @param input - The transaction data (clientId)
  * @returns Promise<Transaction> The created transaction
  */
 export async function createTransaction(input: TransactionRequestDto): Promise<Transaction> {

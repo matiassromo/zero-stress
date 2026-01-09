@@ -330,14 +330,13 @@ const selectedHash = useMemo(() => {
           parkingDate: formatDateOnly(now),
           parkingEntryTime: formatTimeOnly(now),
           parkingExitTime: null,
-          clientName: holder.name,
         };
         await createParking(parkingInput);
       }
 
       // Bar inicial
       if (useBarOrder && barItems.length > 0) {
-        const order = await createBarOrder();
+        const order = await createBarOrder({});
 
         await Promise.all(
           barItems.map((item) =>
