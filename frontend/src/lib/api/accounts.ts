@@ -6,20 +6,12 @@ export type PosAccount = {
   id: string;
   status: "Abierta" | "Cerrada";
   openedAt: string;
-  closedAt?: string | null; // <- hora de salida
+  closedAt?: string | null;
   clientId: string;
   clientName: string;
-
-  // Género del cliente si lo usas para otra cosa ("M" | "F")
   gender: "M" | "F";
-
-  // Llaves asignadas con género de llave (H/M)
   keys?: { items: SelectedKey[]; duration: "1H" | "8H" | "2M" };
-
-  // Tipo de entrada usado al abrir
   entryType: PosEntryType;
-
-  // Indica si esta cuenta requirió parqueadero al momento de crearla
   requiresParking?: boolean;
 };
 
@@ -53,6 +45,27 @@ export type AccountSummary = {
   saldo: number;
 };
 
+export type UpdateAccountInput = Partial<{
+  clientId: string;
+  clientName: string;
+  entryType: "Normal" | "Tarjeta 10 pases";
+  gender: "M" | "F";
+  requiresParking: boolean;
+
+  // contadores de entradas
+  people: {
+    adult: number;
+    child: number;
+    te: number;
+    dis: number;
+    ac: number;
+  };
+
+  // llaves asignadas en la cuenta (lo que quede seleccionado al guardar)
+  keys: { gender: "H" | "M"; number: number }[];
+}>;
+
+
 type PassRecord = {
   id: string;
   holderName: string;
@@ -61,32 +74,42 @@ type PassRecord = {
 };
 
 type Store = {
-  day: string; // YYYY-MM-DD
+  day: string;
   accounts: PosAccount[];
   chargesByAccount: Record<string, Charge[]>;
   paymentsByAccount: Record<string, Payment[]>;
-  passesByHolder: Record<string, PassRecord>; // clave normalizada por nombre
+  passesByHolder: Record<string, PassRecord>;
 };
 
 const KEY = "ZS_POS_STORE_v3";
 
 export const PRICES = {
-  A: 7.0,  // Adulto
-  N: 4.0,  // Niño
-  TE: 5.0, // Tercera edad
-  D: 5.0,  // Discapacidad
-  AC: 1.0, // Acompañante
+  A: 7.0,
+  N: 4.0,
+  TE: 5.0,
+  D: 5.0,
+  AC: 1.0,
   PASS: 55.0,
   KEY_1H: 0.0,
   KEY_8H: 0.0,
   KEY_2M: 0.0,
 };
 
-function todayStr() { return new Date().toISOString().slice(0, 10); }
-function nowISO() { return new Date().toISOString(); }
-function uid(prefix = "id") { return `${prefix}_${Math.random().toString(36).slice(2, 9)}`; }
-function isSSR() { return typeof window === "undefined"; }
-function normName(s: string) { return s.trim().toLowerCase(); }
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+function nowISO() {
+  return new Date().toISOString();
+}
+function uid(prefix = "id") {
+  return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
+}
+function isSSR() {
+  return typeof window === "undefined";
+}
+function normName(s: string) {
+  return s.trim().toLowerCase();
+}
 
 function freshStore(): Store {
   return {
@@ -111,11 +134,12 @@ function load(): Store {
     localStorage.setItem(KEY, JSON.stringify(init));
     return init;
   }
-  // migraciones simples
   if (!("passesByHolder" in s)) (s as any).passesByHolder = {};
   return s;
 }
-function save(s: Store) { if (!isSSR()) localStorage.setItem(KEY, JSON.stringify(s)); }
+function save(s: Store) {
+  if (!isSSR()) localStorage.setItem(KEY, JSON.stringify(s));
+}
 
 /* ------------------ API cuentas ------------------ */
 export async function listAccountsToday(): Promise<PosAccount[]> {
@@ -125,9 +149,7 @@ export async function listAccountsToday(): Promise<PosAccount[]> {
 export async function getAccount(id: string): Promise<AccountSummary> {
   const s = load();
   const acc = s.accounts.find((a) => a.id === id);
-  if (!acc) {
-    throw new Error("Cuenta no encontrada.");
-  }
+  if (!acc) throw new Error("Cuenta no encontrada.");
   const charges = s.chargesByAccount[id] ?? [];
   const payments = s.paymentsByAccount[id] ?? [];
   const totalCargos = charges.reduce((ac, c) => ac + c.total, 0);
@@ -144,14 +166,53 @@ export async function getAccount(id: string): Promise<AccountSummary> {
   };
 }
 
-export async function listCharges(id: string) { return load().chargesByAccount[id] ?? []; }
-export async function listPayments(id: string) { return load().paymentsByAccount[id] ?? []; }
+export async function listCharges(id: string) {
+  return load().chargesByAccount[id] ?? [];
+}
+export async function listPayments(id: string) {
+  return load().paymentsByAccount[id] ?? [];
+}
+
+/* ------------------ NUEVO: editar cuenta ------------------ */
+/**
+ * Permite editar datos base de una cuenta ABIERTA.
+ * Por ahora: clientName, gender, entryType, requiresParking, keys.
+ * Regla: si está Cerrada -> error.
+ */
+export async function updateAccount(
+  accountId: string,
+  input: Partial<
+    Pick<PosAccount, "clientName" | "gender" | "entryType" | "requiresParking" | "keys">
+  >
+): Promise<PosAccount> {
+  const s = load();
+  const idx = s.accounts.findIndex((a) => a.id === accountId);
+  if (idx === -1) throw new Error("Cuenta no encontrada.");
+  const current = s.accounts[idx];
+  if (current.status !== "Abierta") throw new Error("Solo se puede editar una cuenta abierta.");
+
+  const next: PosAccount = {
+    ...current,
+    ...input,
+    clientName: input.clientName !== undefined ? input.clientName : current.clientName,
+  };
+
+  s.accounts[idx] = next;
+  save(s);
+  return next;
+}
+
+/* ------------------ Cargos / Pagos ------------------ */
 
 export async function addCharge(
   accountId: string,
   input: { kind: "Normal" | "Pase" | "Key"; concept: string; qty: number; amount: number }
 ) {
   const s = load();
+  const acc = s.accounts.find((a) => a.id === accountId);
+  if (!acc) throw new Error("Cuenta no encontrada.");
+  if (acc.status !== "Abierta") throw new Error("No se pueden agregar cargos a una cuenta cerrada.");
+
   const list = s.chargesByAccount[accountId] ?? [];
   const ch: Charge = {
     id: uid("ch"),
@@ -173,6 +234,10 @@ export async function addPayment(
   input: { method: "Efectivo" | "Transferencia" | "Tarjeta"; amount: number; note?: string }
 ) {
   const s = load();
+  const acc = s.accounts.find((a) => a.id === accountId);
+  if (!acc) throw new Error("Cuenta no encontrada.");
+  if (acc.status !== "Abierta") throw new Error("No se pueden agregar pagos a una cuenta cerrada.");
+
   const list = s.paymentsByAccount[accountId] ?? [];
   const p: Payment = {
     id: uid("pm"),
@@ -197,6 +262,70 @@ export async function markChargePaid(accountId: string, chargeId: string) {
   }
 }
 
+/* ------------------ NUEVO: editar/eliminar cargo (cuenta abierta) ------------------ */
+
+export async function updateCharge(
+  accountId: string,
+  chargeId: string,
+  input: Partial<Pick<Charge, "concept" | "qty" | "amount">>
+): Promise<Charge> {
+  const s = load();
+  const acc = s.accounts.find((a) => a.id === accountId);
+  if (!acc) throw new Error("Cuenta no encontrada.");
+  if (acc.status !== "Abierta") throw new Error("Solo se puede editar una cuenta abierta.");
+
+  const list = s.chargesByAccount[accountId] ?? [];
+  const idx = list.findIndex((c) => c.id === chargeId);
+  if (idx === -1) throw new Error("Cargo no encontrado.");
+
+  const current = list[idx];
+  if (current.status === "Pagado") throw new Error("No se puede editar un cargo pagado.");
+
+  const nextQty = input.qty !== undefined ? input.qty : current.qty;
+  const nextAmount = input.amount !== undefined ? input.amount : current.amount;
+
+  const next: Charge = {
+    ...current,
+    ...input,
+    qty: nextQty,
+    amount: nextAmount,
+    total: +(nextQty * nextAmount).toFixed(2),
+  };
+
+  list[idx] = next;
+  s.chargesByAccount[accountId] = list;
+  save(s);
+  return next;
+}
+
+export async function deleteCharge(accountId: string, chargeId: string) {
+  const s = load();
+  const acc = s.accounts.find((a) => a.id === accountId);
+  if (!acc) throw new Error("Cuenta no encontrada.");
+  if (acc.status !== "Abierta") throw new Error("Solo se puede editar una cuenta abierta.");
+
+  const list = s.chargesByAccount[accountId] ?? [];
+  const target = list.find((c) => c.id === chargeId);
+  if (!target) return;
+
+  if (target.status === "Pagado") throw new Error("No se puede eliminar un cargo pagado.");
+
+  s.chargesByAccount[accountId] = list.filter((c) => c.id !== chargeId);
+  save(s);
+}
+
+/* ------------------ NUEVO: llaves mutables en cuenta (local store) ------------------ */
+/**
+ * Guarda en la cuenta (store local) el set actual de llaves.
+ * OJO: sincronizar backend real de llaves lo haces desde el componente (ya lo hicimos).
+ */
+export async function setAccountKeys(
+  accountId: string,
+  input: { items: SelectedKey[]; duration: "1H" | "8H" | "2M" } | undefined
+) {
+  return updateAccount(accountId, { keys: input });
+}
+
 /**
  * Cierra la cuenta: status = "Cerrada", marca closedAt y libera llaves en módulo Llaves.
  */
@@ -213,9 +342,8 @@ export async function closeAccount(id: string): Promise<PosAccount | undefined> 
   s.accounts[idx] = updated;
   save(s);
 
-  // Si la cuenta tenía llaves, las liberamos en el backend real de llaves
   if (updated.keys?.items?.length) {
-    const codes = updated.keys.items.map((k) => `${k.number}${k.gender}`); // ej: "5H", "3M"
+    const codes = updated.keys.items.map((k) => `${k.number}${k.gender}`);
     await releaseLockerKeys(codes);
   }
 
@@ -393,13 +521,13 @@ export async function consumePass(holderName: string, uses: number) {
 export async function openAccount(input: {
   clientId: string;
   clientName: string;
-  gender: "M" | "F"; // del cliente
+  gender: "M" | "F";
   entryType: PosEntryType;
-  counts?: { A: number; N: number; TE: number; D: number; AC: number }; // si normal
-  peopleCount: number; // total personas que ingresan
+  counts?: { A: number; N: number; TE: number; D: number; AC: number };
+  peopleCount: number;
   keys?: { items: SelectedKey[]; duration: "1H" | "8H" | "2M" };
-  createPassIfMissing?: boolean; // si entryType=pass y no existe
-  requiresParking?: boolean;      // campo para parqueadero
+  createPassIfMissing?: boolean;
+  requiresParking?: boolean;
 }) {
   const s = load();
   const id = nextAccountId(s.accounts);
@@ -420,36 +548,29 @@ export async function openAccount(input: {
 
   const charges: Charge[] = [];
 
-  // Cargos por entradas (NORMAL)
   if (input.entryType === "normal" && input.counts) {
-    addChargeIf(charges, "Normal", "Adulto (A)",        input.counts.A,  PRICES.A);
-    addChargeIf(charges, "Normal", "Niño (N)",          input.counts.N,  PRICES.N);
+    addChargeIf(charges, "Normal", "Adulto (A)", input.counts.A, PRICES.A);
+    addChargeIf(charges, "Normal", "Niño (N)", input.counts.N, PRICES.N);
     addChargeIf(charges, "Normal", "Tercera edad (TE)", input.counts.TE, PRICES.TE);
-    addChargeIf(charges, "Normal", "Discapacidad (D)",  input.counts.D,  PRICES.D);
-    addChargeIf(charges, "Normal", "Acompañante (AC)",  input.counts.AC, PRICES.AC);
+    addChargeIf(charges, "Normal", "Discapacidad (D)", input.counts.D, PRICES.D);
+    addChargeIf(charges, "Normal", "Acompañante (AC)", input.counts.AC, PRICES.AC);
   }
 
-  // Cargos por pase (PASS)
   if (input.entryType === "pass") {
     const found = await findPassByHolder(input.clientName);
     if (!found) {
       if (input.createPassIfMissing) {
-        // vender y crear pase
         await createPassForHolder(input.clientName);
         addChargeIf(charges, "Pase", "Tarjeta 10 pases", 1, PRICES.PASS);
       } else {
         throw new Error("No existe pase para este titular.");
       }
-    } else {
-      // solo consumo de usos, sin cargos adicionales
-      // el consumo real se hace afuera para simplificar (desde el componente)
     }
   }
 
-  // Cargo por llaves (si cobras) + detalle "5H, 2M"
   if (input.keys?.items?.length) {
     const dur = input.keys.duration;
-    const tag = input.keys.items.map(k => `${k.number}${k.gender}`).join(", ");
+    const tag = input.keys.items.map((k) => `${k.number}${k.gender}`).join(", ");
     const price =
       dur === "1H" ? PRICES.KEY_1H : dur === "8H" ? PRICES.KEY_8H : PRICES.KEY_2M;
     addChargeIf(charges, "Key", `Llaves ${tag} (${dur})`, 1, price);
@@ -477,12 +598,14 @@ function addChargeIf(
     amount: price,
     total: +(qty * price).toFixed(2),
     status: "Pendiente",
-    createdAt: nowISO(),  
+    createdAt: nowISO(),
   });
 }
 
 function nextAccountId(existing: PosAccount[]) {
-  const nums = existing.map((a) => parseInt(a.id, 10)).filter((n) => !Number.isNaN(n));
+  const nums = existing
+    .map((a) => parseInt(a.id, 10))
+    .filter((n) => !Number.isNaN(n));
   const next = nums.length ? Math.max(...nums) + 1 : 1;
   return next.toString().padStart(3, "0");
 }
