@@ -95,6 +95,10 @@ export default function AccountDetail({
   const [addChargeOpen, setAddChargeOpen] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
 
+  // ✅ para evitar doble click / estado de acciones
+  const [closing, setClosing] = useState(false);
+  const [printing, setPrinting] = useState(false);
+
   async function loadAll() {
     setLoading(true);
     const [s, ch, pm] = await Promise.all([
@@ -149,11 +153,28 @@ export default function AccountDetail({
     onChanged?.();
   }
 
-  async function handleCloseAndPrint() {
-    await closeAccount(accountId);
-    printAccountReceipt(accountId);
-    await loadAll();
-    onChanged?.();
+  // ✅ SOLO cerrar (sin imprimir)
+  async function handleCloseAccount() {
+    if (closing) return;
+    setClosing(true);
+    try {
+      await closeAccount(accountId);
+      await loadAll();
+      onChanged?.();
+    } finally {
+      setClosing(false);
+    }
+  }
+
+  // ✅ imprimir siempre (abierta o cerrada)
+  async function handlePrintReceipt() {
+    if (printing) return;
+    setPrinting(true);
+    try {
+      await Promise.resolve(printAccountReceipt(accountId));
+    } finally {
+      setPrinting(false);
+    }
   }
 
   // ✅ agregar cargo libre (bar/extras)
@@ -304,16 +325,31 @@ export default function AccountDetail({
         </div>
       </div>
 
-      {/* Acción única cierre */}
+      {/* ✅ Acciones: CERRAR e IMPRIMIR separados (imprimir funciona aunque esté cerrada) */}
       <div className="flex flex-wrap gap-2">
         {summary.status === "Abierta" && (
           <button
-            onClick={handleCloseAndPrint}
-            className="rounded-full bg-red-600 text-white px-4 py-2"
+            onClick={handleCloseAccount}
+            disabled={closing}
+            className={
+              "rounded-full px-4 py-2 text-white " +
+              (closing ? "bg-red-400 cursor-not-allowed" : "bg-red-600")
+            }
           >
-            Cerrar cuenta + imprimir
+            {closing ? "Cerrando…" : "Cerrar cuenta"}
           </button>
         )}
+
+        <button
+          onClick={handlePrintReceipt}
+          disabled={printing}
+          className={
+            "rounded-full border px-4 py-2 " +
+            (printing ? "opacity-60 cursor-not-allowed" : "")
+          }
+        >
+          {printing ? "Imprimiendo…" : "Imprimir comprobante"}
+        </button>
       </div>
 
       {/* Cargos */}
@@ -434,7 +470,7 @@ export default function AccountDetail({
           initial={{
             clientId: sAny.clientId ?? null,
             clientName: summary.clientName ?? "",
-            entryType: sAny.entryType, // ajusta cuando tu summary ya lo tenga tipado
+            entryType: sAny.entryType,
             gender: sAny.gender ?? "M",
             requiresParking: sAny.requiresParking ?? false,
             people: sAny.people ?? { adult: 0, child: 0, te: 0, dis: 0, ac: 0 },
@@ -769,7 +805,11 @@ function KeysModal({
   currentClientName: string;
   onCancel: () => void;
   onAddKey: (payload: { gender: KeyGender; number: number; clientName: string }) => Promise<void>;
-  onRemoveKey: (payload: { gender: KeyGender; number: number; clientName: string }) => Promise<void>;
+  onRemoveKey: (payload: {
+    gender: KeyGender;
+    number: number;
+    clientName: string;
+  }) => Promise<void>;
 }) {
   const [gender, setGender] = useState<KeyGender>("H");
   const [free, setFree] = useState<number[]>([]);
