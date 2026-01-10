@@ -2,17 +2,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  PRICES,
-  openAccount,
-  findPassByHolder,
-  createPassForHolder,
-  consumePass,
-  addCharge,
-} from "@/lib/api/accounts";
+import { PRICES, openAccount, addCharge } from "@/lib/api/accounts";
+
 import { listClients, createClient, UpsertClientInput } from "@/lib/api/clients";
 import { Client } from "@/types/client";
 import { SelectedKey, PosEntryType, KeyGender } from "@/types/pos";
+
 // 🔽 backend real de llaves
 import { listKeys, updateKey } from "@/lib/apiv2/keys";
 import { createParking } from "@/lib/apiv2/parkings";
@@ -24,12 +19,34 @@ import type { BarProduct } from "@/types/barProduct";
 import { listBarProducts } from "@/lib/apiv2/barProducts";
 import { createBarOrder, createBarOrderDetail } from "@/lib/apiv2/barOrders";
 
+// ✅ Tarjetas 10 pases (módulo real)
+import {
+  findAccessCardByHolder,
+  createAccessCardForHolder,
+  consumeAccessCardByHolder,
+} from "@/lib/apiv2/accessCards";
+
 const PARKING_HOURLY_RATE = 0.5;
+
+function norm(s: string) {
+  return (s ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function matchesPrefixAnyWord(fullName: string, q: string) {
+  const nq = norm(q);
+  if (!nq) return true;
+
+  const words = norm(fullName).split(/\s+/).filter(Boolean);
+  return words.some((w) => w.startsWith(nq));
+}
 
 function formatDateOnly(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
-
 function formatTimeOnly(d: Date): string {
   return d.toTimeString().slice(0, 8);
 }
@@ -37,7 +54,6 @@ function formatTimeOnly(d: Date): string {
 type Duration = "1H" | "8H" | "2M";
 
 /* --------- HELPERS PARA LLAVES (api/Keys) --------- */
-
 async function fetchAvailableKeysByGender(gender: KeyGender): Promise<number[]> {
   const raw: Key[] = await listKeys();
   const ordered = [...raw].sort((a, b) => a.id.localeCompare(b.id));
@@ -100,6 +116,36 @@ type BarItem = {
   qty: number;
 };
 
+/* --------- Tipo auxiliar tarjeta 10 pases ---------- */
+type AccessCardState = {
+  loading: boolean;
+  exists: boolean;
+  cardId: string | null;
+  remaining: number; // ✅ en tu sistema: remaining === card.uses
+  willCreateIfMissing: boolean;
+  createdNow: boolean;
+  error: string | null;
+};
+
+const emptyCardState: AccessCardState = {
+  loading: false,
+  exists: false,
+  cardId: null,
+  remaining: 0,
+  willCreateIfMissing: false,
+  createdNow: false,
+  error: null,
+};
+
+// ✅ fuente de verdad: remaining = card.uses (como en /pases)
+function remainingFromFound(found: { card: any; remaining?: any } | null | undefined): number {
+  const uses = Number(found?.card?.uses);
+  if (Number.isFinite(uses)) return uses;
+
+  const fallback = Number(found?.remaining);
+  return Number.isFinite(fallback) ? fallback : 0;
+}
+
 export default function CreateAccountModal({
   onClose,
   onCreated,
@@ -110,6 +156,7 @@ export default function CreateAccountModal({
   /* ---------- Cliente ---------- */
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Client[]>([]);
+  const [allClients, setAllClients] = useState<Client[]>([]);
   const [client, setClient] = useState<Client | null>(null);
 
   /* ---------- Tipo de entrada ---------- */
@@ -118,23 +165,15 @@ export default function CreateAccountModal({
   /* ---------- Rubros (solo normal) ---------- */
   const [counts, setCounts] = useState({ A: 0, N: 0, TE: 0, D: 0, AC: 0 });
 
-  /* ---------- Pases ---------- */
+  /* ---------- Pases (Tarjeta 10) ---------- */
   const peopleCount = counts.A + counts.N + counts.TE + counts.D + counts.AC;
-  const [passState, setPassState] = useState<{
-    loading: boolean;
-    exists: boolean;
-    remaining: number;
-  }>({
-    loading: false,
-    exists: false,
-    remaining: 0,
-  });
+  const [cardState, setCardState] = useState<AccessCardState>(emptyCardState);
 
   /* ---------- Llaves ---------- */
   const [keyGender, setKeyGender] = useState<KeyGender>("H");
   const [availableKeys, setAvailableKeys] = useState<number[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<SelectedKey[]>([]);
-  const duration: Duration = "1H"; // interno
+  const duration: Duration = "1H";
 
   /* ---------- Parqueadero ---------- */
   const [requiresParking, setRequiresParking] = useState(false);
@@ -150,27 +189,56 @@ export default function CreateAccountModal({
   const [barQty, setBarQty] = useState(1);
   const [barItems, setBarItems] = useState<BarItem[]>([]);
 
-  /* ---------- Buscar clientes ---------- */
+  /* ---------- Precargar clientes (1 vez) ---------- */
   useEffect(() => {
+    let alive = true;
     (async () => {
-      if (!query) {
+      try {
+        const data = await listClients("");
+        if (alive) setAllClients(data);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /* ---------- Buscar clientes (prefijo) ---------- */
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      const q = query.trim();
+
+      if (!q) {
         setResults([]);
         return;
       }
-      const r = await listClients(query);
-      setResults(r);
-    })();
-  }, [query]);
 
-  /* ---------- Cargar llaves por género H/M desde /api/Keys ---------- */
-// hash estable para dependencias (solo afecta cuando realmente cambian llaves del género actual)
-const selectedHash = useMemo(() => {
-  return selectedKeys
-    .filter(k => k.gender === keyGender)
-    .map(k => k.number)
-    .sort((a,b) => a - b)
-    .join(",");
-}, [selectedKeys, keyGender]);
+      if (allClients.length > 0) {
+        const filtered = allClients
+          .filter((c) => matchesPrefixAnyWord(c.name, q))
+          .slice(0, 50);
+
+        setResults(filtered);
+        return;
+      }
+
+      const r = await listClients(q);
+      setResults(r);
+    }, 150);
+
+    return () => clearTimeout(t);
+  }, [query, allClients]);
+
+  /* ---------- Cargar llaves por género H/M ---------- */
+  const selectedHash = useMemo(() => {
+    return selectedKeys
+      .filter((k) => k.gender === keyGender)
+      .map((k) => k.number)
+      .sort((a, b) => a - b)
+      .join(",");
+  }, [selectedKeys, keyGender]);
 
   useEffect(() => {
     let alive = true;
@@ -178,22 +246,18 @@ const selectedHash = useMemo(() => {
     (async () => {
       const free = await fetchAvailableKeysByGender(keyGender);
 
-      // filtra seleccionadas del género actual
       const selectedNums = new Set(
-        selectedHash
-          ? selectedHash.split(",").map(x => parseInt(x, 10))
-          : []
+        selectedHash ? selectedHash.split(",").map((x) => parseInt(x, 10)) : []
       );
 
       if (!alive) return;
-      setAvailableKeys(free.filter(n => !selectedNums.has(n)));
+      setAvailableKeys(free.filter((n) => !selectedNums.has(n)));
     })();
 
     return () => {
       alive = false;
     };
   }, [keyGender, selectedHash]);
-
 
   /* ---------- Cargar productos de bar cuando se active ---------- */
   useEffect(() => {
@@ -224,7 +288,13 @@ const selectedHash = useMemo(() => {
     ).toFixed(2);
   }, [entryType, counts]);
 
-  const passSale = entryType === "pass" && !passState.exists ? PRICES.PASS : 0;
+  const passSale = useMemo(() => {
+    if (entryType !== "pass") return 0;
+    if (cardState.createdNow) return PRICES.PASS;
+    if (!cardState.exists && cardState.willCreateIfMissing) return PRICES.PASS;
+    return 0;
+  }, [entryType, cardState.createdNow, cardState.exists, cardState.willCreateIfMissing]);
+
   const keysSubtotal = 0;
   const parkingSubtotal = 0;
 
@@ -265,65 +335,181 @@ const selectedHash = useMemo(() => {
     return createClient(input);
   }
 
-  async function lookupPass(holderName: string) {
-    setPassState((s) => ({ ...s, loading: true }));
-    const found = await findPassByHolder(holderName);
-    setPassState({
-      loading: false,
-      exists: !!found,
-      remaining: found?.remaining ?? 0,
-    });
+  function holderNameFromUI(): string {
+    return (client?.name ?? query).trim();
+  }
+
+  async function lookupCard(holderName: string) {
+    setCardState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const found = await findAccessCardByHolder(holderName);
+      const remaining = remainingFromFound(found);
+
+      setCardState((s) => ({
+        ...s,
+        loading: false,
+        exists: !!found,
+        cardId: found?.card?.id ?? null,
+        remaining,
+        error: null,
+        willCreateIfMissing: found ? false : s.willCreateIfMissing,
+        createdNow: false,
+      }));
+    } catch (e) {
+      setCardState((s) => ({
+        ...s,
+        loading: false,
+        error: (e as Error).message ?? "Error buscando tarjeta.",
+      }));
+    }
+  }
+
+  async function createCardNow(holderName: string) {
+    setCardState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const created = await createAccessCardForHolder(holderName, 10);
+
+      // ✅ fuente de verdad: si viene uses desde backend, úsalo; si no, usa remaining param
+      const uses = Number((created as any)?.card?.uses);
+      const remaining = Number.isFinite(uses)
+        ? uses
+        : Number.isFinite(Number(created.remaining))
+        ? Number(created.remaining)
+        : 10;
+
+      setCardState({
+        loading: false,
+        exists: true,
+        cardId: created.card.id,
+        remaining,
+        willCreateIfMissing: true,
+        createdNow: true,
+        error: null,
+      });
+    } catch (e) {
+      setCardState((s) => ({
+        ...s,
+        loading: false,
+        error: (e as Error).message ?? "Error creando tarjeta.",
+      }));
+    }
   }
 
   /* ---------- Crear cuenta ---------- */
   async function handleCreate() {
     try {
       setCreating(true);
+
       const holder = await ensureClient(client, query);
+      const holderName = holder.name;
 
-      if (peopleCount === 0)
-        throw new Error("Agrega al menos 1 persona para continuar.");
-
-      let willCreatePass = false;
       if (entryType === "pass") {
-        const found = await findPassByHolder(holder.name);
-        if (!found) {
-          await createPassForHolder(holder.name);
-          willCreatePass = true;
-        } else if (found.remaining < peopleCount) {
-          throw new Error(
-            `Pase sin usos suficientes. Restantes: ${found.remaining}`
-          );
+        if (peopleCount <= 0) throw new Error("Agrega al menos 1 persona para continuar.");
+      } else {
+        if (peopleCount <= 0 && selectedKeys.length === 0) {
+          throw new Error("Agrega al menos 1 persona o selecciona llaves para continuar.");
         }
       }
 
-      // Guardar llaves en la cuenta local
+      let willChargePassSale = false;
+      let remainingToValidate = 0;
+
+      if (entryType === "pass") {
+        if (cardState.exists && cardState.cardId) {
+          // ✅ cardState.remaining ya representa "disponibles" (uses)
+          remainingToValidate = cardState.remaining;
+          if (cardState.createdNow) willChargePassSale = true;
+        } else {
+          const found = await findAccessCardByHolder(holderName);
+
+          if (found) {
+            const remaining = remainingFromFound(found);
+            remainingToValidate = remaining;
+
+            setCardState((s) => ({
+              ...s,
+              exists: true,
+              cardId: found.card.id,
+              remaining,
+              createdNow: false,
+              error: null,
+            }));
+          } else {
+            if (!cardState.willCreateIfMissing) {
+              throw new Error("No existe tarjeta. Marca 'Crear y cobrar si no existe' para continuar.");
+            }
+
+            const created = await createAccessCardForHolder(holderName, 10);
+
+            willChargePassSale = true;
+
+            const uses = Number((created as any)?.card?.uses);
+            remainingToValidate = Number.isFinite(uses)
+              ? uses
+              : Number.isFinite(Number(created.remaining))
+              ? Number(created.remaining)
+              : 10;
+
+            setCardState((s) => ({
+              ...s,
+              exists: true,
+              cardId: created.card.id,
+              remaining: remainingToValidate,
+              willCreateIfMissing: true,
+              createdNow: true,
+              error: null,
+            }));
+          }
+        }
+
+        if (remainingToValidate < peopleCount) {
+          throw new Error(`Tarjeta sin usos suficientes. Restantes: ${remainingToValidate}`);
+        }
+      }
+
       const keysToAttach: SelectedKey[] = selectedKeys.map((k) => ({
         ...k,
-        duration, // interno
+        duration,
       }));
 
       const account = await openAccount({
         clientId: holder.id,
         clientName: holder.name,
         gender: "M",
-        entryType,
+
+        // FORZAR normal para que el backend no busque “pase”
+        entryType: "normal",
+
         counts: entryType === "normal" ? counts : undefined,
         peopleCount,
         keys: keysToAttach.length > 0 ? { items: keysToAttach, duration } : undefined,
-        createPassIfMissing: entryType === "pass",
+
+        createPassIfMissing: false,
       });
 
-      if (entryType === "pass" && !willCreatePass) {
-        await consumePass(holder.name, peopleCount);
+      if (entryType === "pass" && willChargePassSale) {
+        await addCharge(account.id, {
+          kind: "Normal",
+          concept: "Tarjeta 10 pases (venta)",
+          qty: 1,
+          amount: PRICES.PASS,
+        });
       }
 
-      // Actualizar llaves reales
+      if (entryType === "pass") {
+        await consumeAccessCardByHolder(holderName, peopleCount);
+
+        // opcional: refrescar UI local después de consumir
+        setCardState((s) => ({
+          ...s,
+          remaining: Math.max(0, (s.remaining ?? 0) - peopleCount),
+        }));
+      }
+
       if (selectedKeys.length) {
         await reserveLockerKeys(selectedKeys, account.id, holder.name);
       }
 
-      // Parqueadero
       if (requiresParking) {
         const now = new Date();
         const parkingInput: ParkingRequestDto = {
@@ -334,7 +520,6 @@ const selectedHash = useMemo(() => {
         await createParking(parkingInput);
       }
 
-      // Bar inicial
       if (useBarOrder && barItems.length > 0) {
         const order = await createBarOrder({});
 
@@ -371,7 +556,9 @@ const selectedHash = useMemo(() => {
 
   const canSubmit =
     (client || query.trim().length > 0) &&
-    (peopleCount > 0 || selectedKeys.length > 0);
+    (entryType === "pass"
+      ? peopleCount > 0
+      : peopleCount > 0 || selectedKeys.length > 0);
 
   /* ---------- UI ---------- */
   return (
@@ -422,7 +609,10 @@ const selectedHash = useMemo(() => {
               <input
                 type="radio"
                 checked={entryType === "normal"}
-                onChange={() => setEntryType("normal")}
+                onChange={() => {
+                  setEntryType("normal");
+                  setCardState(emptyCardState);
+                }}
               />
               <span>Normal</span>
             </label>
@@ -440,6 +630,7 @@ const selectedHash = useMemo(() => {
         {/* Entradas */}
         <div className="mt-4 rounded-xl border">
           <div className="p-3 font-semibold border-b">Entradas</div>
+
           {entryType === "normal" ? (
             <div className="p-3 grid sm:grid-cols-5 gap-3">
               {(["A", "N", "TE", "D", "AC"] as const).map((k) => (
@@ -467,31 +658,71 @@ const selectedHash = useMemo(() => {
                   }}
                 />
                 <p className="mt-1 text-xs text-gray-500">
-                  Se descontarán {peopleCount} usos del pase.
+                  Se descontarán {peopleCount} usos de la tarjeta.
                 </p>
               </div>
-              <div>
-                <div className="text-sm font-medium">Validar pase</div>
-                <button
-                  className="mt-1 px-3 py-2 rounded bg-gray-100"
-                  disabled={!(client || query.trim()) || passState.loading}
-                  onClick={() => lookupPass(client ? client.name : query)}
-                >
-                  {passState.loading ? "Buscando…" : "Buscar pase por nombre"}
-                </button>
-                <p className="mt-2 text-sm">
-                  {passState.exists ? (
-                    <>
-                      ✔ Pase encontrado. Restantes:{" "}
-                      <b>{passState.remaining}</b>
-                    </>
-                  ) : (
-                    <>
-                      ✖ No existe pase. Se podrá crear y cobrar{" "}
-                      <b>${PRICES.PASS}</b>.
-                    </>
+
+              <div className="sm:col-span-2">
+                <div className="text-sm font-medium">Validar tarjeta 10 pases</div>
+
+                <div className="mt-1 flex flex-wrap gap-2 items-center">
+                  <button
+                    className="px-3 py-2 rounded bg-gray-100 disabled:opacity-60"
+                    disabled={!holderNameFromUI() || cardState.loading}
+                    onClick={() => lookupCard(holderNameFromUI())}
+                    type="button"
+                  >
+                    {cardState.loading ? "Buscando…" : "Buscar por nombre"}
+                  </button>
+
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={cardState.willCreateIfMissing}
+                      onChange={(e) =>
+                        setCardState((s) => ({
+                          ...s,
+                          willCreateIfMissing: e.target.checked,
+                        }))
+                      }
+                    />
+                    <span>Crear y cobrar si no existe</span>
+                  </label>
+
+                  {!cardState.exists && cardState.willCreateIfMissing && (
+                    <button
+                      className="px-3 py-2 rounded bg-indigo-600 text-white disabled:opacity-60"
+                      disabled={!holderNameFromUI() || cardState.loading}
+                      onClick={() => createCardNow(holderNameFromUI())}
+                      type="button"
+                    >
+                      Crear ahora
+                    </button>
                   )}
-                </p>
+                </div>
+
+                <div className="mt-2 text-sm">
+                  {cardState.error && <p className="text-red-600">{cardState.error}</p>}
+
+                  {cardState.exists ? (
+                    <p>
+                      ✔ Tarjeta encontrada. Restantes: <b>{cardState.remaining}</b>
+                    </p>
+                  ) : (
+                    <p>
+                      ✖ No existe tarjeta.
+                      {cardState.willCreateIfMissing ? (
+                        <>
+                          {" "}Se creará y se cobrará <b>${PRICES.PASS}</b>.
+                        </>
+                      ) : (
+                        <>
+                          {" "}Marca “Crear y cobrar” para continuar.
+                        </>
+                      )}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -513,9 +744,7 @@ const selectedHash = useMemo(() => {
             </div>
 
             <div className="sm:col-span-2">
-              <div className="text-sm font-medium">
-                Llaves disponibles ({keyGender})
-              </div>
+              <div className="text-sm font-medium">Llaves disponibles ({keyGender})</div>
               <div className="mt-1 flex flex-wrap gap-1">
                 {availableKeys.map((n) => {
                   const active = selectedKeys.some(
@@ -530,10 +759,7 @@ const selectedHash = useMemo(() => {
                         setSelectedKeys((prev) =>
                           active
                             ? prev.filter(
-                                (k) =>
-                                  !(
-                                    k.number === n && k.gender === keyGender
-                                  )
+                                (k) => !(k.number === n && k.gender === keyGender)
                               )
                             : [
                                 ...prev,
@@ -547,19 +773,16 @@ const selectedHash = useMemo(() => {
                         )
                       }
                       className={`px-2 py-1 rounded border text-sm ${
-                        active
-                          ? "bg-blue-600 text-white border-blue-600"
-                          : "bg-white"
+                        active ? "bg-blue-600 text-white border-blue-600" : "bg-white"
                       }`}
                     >
                       {n}
                     </button>
                   );
                 })}
+
                 {availableKeys.length === 0 && (
-                  <span className="text-sm text-gray-500">
-                    No hay llaves libres
-                  </span>
+                  <span className="text-sm text-gray-500">No hay llaves libres</span>
                 )}
               </div>
             </div>
@@ -572,9 +795,7 @@ const selectedHash = useMemo(() => {
                 {selectedKeys
                   .slice()
                   .sort(
-                    (a, b) =>
-                      a.gender.localeCompare(b.gender) ||
-                      a.number - b.number
+                    (a, b) => a.gender.localeCompare(b.gender) || a.number - b.number
                   )
                   .map((k) => (
                     <span
@@ -600,7 +821,6 @@ const selectedHash = useMemo(() => {
             </div>
           )}
 
-          {/* Parqueadero */}
           <div className="mt-4 flex items-center gap-2">
             <input
               id="requiresParking"
@@ -632,21 +852,15 @@ const selectedHash = useMemo(() => {
           {useBarOrder && (
             <div className="mt-3 space-y-3">
               {loadingBarProducts ? (
-                <p className="text-sm text-gray-500">
-                  Cargando productos de bar...
-                </p>
+                <p className="text-sm text-gray-500">Cargando productos de bar...</p>
               ) : barProducts.length === 0 ? (
-                <p className="text-sm text-gray-500">
-                  No hay productos de bar configurados.
-                </p>
+                <p className="text-sm text-gray-500">No hay productos de bar configurados.</p>
               ) : (
                 <form
                   className="grid sm:grid-cols-3 gap-3 items-end"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    const p = barProducts.find(
-                      (x) => x.id === selectedBarProductId
-                    );
+                    const p = barProducts.find((x) => x.id === selectedBarProductId);
                     if (!p || barQty <= 0) return;
                     setBarItems((prev) => [
                       ...prev,
@@ -683,9 +897,7 @@ const selectedHash = useMemo(() => {
                       className="border rounded px-3 py-2 w-full mt-1 text-sm"
                       value={barQty}
                       onChange={(e) =>
-                        setBarQty(
-                          Math.max(1, parseInt(e.target.value || "1", 10))
-                        )
+                        setBarQty(Math.max(1, parseInt(e.target.value || "1", 10)))
                       }
                     />
                   </div>
@@ -742,10 +954,7 @@ const selectedHash = useMemo(() => {
                     </tbody>
                     <tfoot className="bg-gray-50">
                       <tr>
-                        <td
-                          className="px-3 py-2 font-semibold text-right"
-                          colSpan={3}
-                        >
+                        <td className="px-3 py-2 font-semibold text-right" colSpan={3}>
                           Total bar
                         </td>
                         <td className="px-3 py-2 font-semibold text-right">

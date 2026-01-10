@@ -1,6 +1,7 @@
+// src/app/pases/[id]/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import {
@@ -26,6 +27,12 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
   );
 }
 
+function toDateTime(t: EntranceAccessCard) {
+  const d = t.entranceDate ?? "";
+  const h = t.entranceEntryTime ?? "00:00:00";
+  return new Date(`${d}T${h}`);
+}
+
 export default function PassDetailPage() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
@@ -48,8 +55,12 @@ export default function PassDetailPage() {
     }
 
     const hist = await listEntranceAccessCards();
-    setHistory(hist.filter((h) => h.accessCardId === id));
+    const mine = hist.filter((h) => h.accessCardId === id);
 
+    // ordenar por fecha+hora (asc)
+    mine.sort((a, b) => toDateTime(a).getTime() - toDateTime(b).getTime());
+
+    setHistory(mine);
     setCard(cardData);
     setLoading(false);
   }
@@ -60,8 +71,14 @@ export default function PassDetailPage() {
 
   const remaining = useMemo(() => {
     if (!card) return 0;
-    return card.total - card.uses;
+    return card.uses;
   }, [card]);
+
+  const lastUse = useMemo(() => {
+    if (history.length === 0) return "—";
+    const last = history[history.length - 1];
+    return toDateTime(last).toLocaleString();
+  }, [history]);
 
   async function addUse() {
     if (!card) return;
@@ -75,7 +92,7 @@ export default function PassDetailPage() {
     const today = now.toISOString().substring(0, 10);
     const time = now.toTimeString().substring(0, 8);
 
-    // crear entradas en la tabla EntranceAccessCards
+    // crear entradas en EntranceAccessCards
     for (let i = 0; i < qty; i++) {
       await createEntranceAccessCard({
         accessCardId: card.id,
@@ -85,10 +102,19 @@ export default function PassDetailPage() {
       });
     }
 
-    // actualizar SOLO total (no uses)
-    await updateAccessCard(card.id, {
-      total: card.total,
-    });
+    /**
+     * IMPORTANTE:
+     * - Si tu backend recalcula "uses" automáticamente por historial,
+     *   NO hagas updateAccessCard aquí.
+     * - Si tu backend NO recalcula uses, entonces descomenta el update de abajo.
+     */
+
+    // await updateAccessCard(card.id, {
+    //   holderName: card.holderName,
+    //   total: card.total,
+    //   uses: card.uses + qty,
+    //   transactionId: card.transactionId ?? null,
+    // });
 
     await load();
   }
@@ -96,9 +122,17 @@ export default function PassDetailPage() {
   async function renewCard() {
     if (!card) return;
 
-    // resetear cantidad de usos reiniciando los registros
+    /**
+     * Renovar real debería:
+     * - (ideal) borrar historial y resetear uses=0
+     * Como aún no tenemos endpoint para limpiar historial,
+     * por ahora solo resetea uses a 0 si el backend lo permite.
+     */
     await updateAccessCard(card.id, {
+      holderName: card.holderName,
       total: card.total,
+      uses: 0,
+      transactionId: card.transactionId ?? null,
     });
 
     await load();
@@ -115,36 +149,31 @@ export default function PassDetailPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">
-          Tarjeta #{card.id.slice(0, 8)}
-        </h1>
+        <div>
+          <h1 className="text-2xl font-semibold">Tarjeta {card.id.slice(0, 8)}</h1>
+          <div className="text-sm opacity-70">
+            Dueño: <span className="font-medium">{card.holderName?.trim() || "—"}</span>
+          </div>
+          <div className="text-xs opacity-60">{card.id}</div>
+        </div>
 
         <div className="flex gap-2">
-          <button className="btn" onClick={renewCard}>
+          <button className="btn" onClick={renewCard} type="button">
             🔄 Renovar
           </button>
-          <button className="btn" onClick={onDelete}>
+          <button className="btn" onClick={onDelete} type="button">
             🗑️ Eliminar
           </button>
         </div>
       </div>
 
-      {/* Info principal */}
       <div className="grid lg:grid-cols-2 gap-4">
         <div className="card space-y-3">
-          <Row k="🔢 Pases usados" v={`${card.uses} / ${card.total}`} />
-          <Row k="📦 Disponibles" v={remaining} />
-          <Row
-            k="⏱️ Último uso"
-            v={
-              history.length === 0
-                ? "—"
-                : new Date(history[history.length - 1].entranceDate ?? "")
-                    .toLocaleDateString()
-            }
-          />
+          <Row k="👤 Dueño" v={card.holderName?.trim() || "—"} />
+          <Row k="🔢 Pases usados" v={`${card.total - card.uses} / ${card.total}`} />
+          <Row k="📦 Disponibles" v={card.uses} />
+          <Row k="⏱️ Último uso" v={lastUse} />
         </div>
 
         <div className="card">
@@ -159,7 +188,7 @@ export default function PassDetailPage() {
                 min={1}
                 max={10}
                 value={qty}
-                onChange={(e) => setQty(Number(e.target.value))}
+                onChange={(e) => setQty(Math.max(1, Number(e.target.value)))}
               />
             </label>
 
@@ -173,7 +202,7 @@ export default function PassDetailPage() {
             </label>
 
             <div className="sm:col-span-3 flex justify-end">
-              <button className="btn-primary" onClick={addUse}>
+              <button className="btn-primary" onClick={addUse} type="button">
                 Añadir
               </button>
             </div>
@@ -181,7 +210,6 @@ export default function PassDetailPage() {
         </div>
       </div>
 
-      {/* Historial */}
       <div className="card">
         <div className="font-medium mb-3">📊 Historial de usos</div>
 
@@ -196,8 +224,7 @@ export default function PassDetailPage() {
               className="py-2 grid grid-cols-1 sm:grid-cols-3 gap-2 items-center"
             >
               <div className="opacity-70 text-sm">
-                {i + 1}️⃣{" "}
-                {new Date(t.entranceDate ?? "").toLocaleDateString()}
+                {i + 1}️⃣ {toDateTime(t).toLocaleString()}
               </div>
 
               <div className="text-sm">Entrada</div>
